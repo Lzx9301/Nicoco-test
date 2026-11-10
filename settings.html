@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>系統設定｜Website CRM</title>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script>
+const FB_CONFIG = {
+  apiKey:            'AIzaSyD7LyLGlpY-FiSnEIzfwolg0aJCfDmlHwY',
+  authDomain:        'webproject-3914c.firebaseapp.com',
+  projectId:         'webproject-3914c',
+  storageBucket:     'webproject-3914c.firebasestorage.app',
+  messagingSenderId: '266695680346',
+  appId:             '1:266695680346:web:022b22dfa5d12f61df9363',
+};
+firebase.initializeApp(FB_CONFIG);
+const db   = firebase.firestore();
+const auth = firebase.auth();
+const ALLOWED_EMAILS = ['nicoliu930226@gmail.com'];
+</script>
+
+<style>
+/* ── Tokens ──────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --ink:    #0f1117; --ink-60: #60636e; --ink-30: #b8bac4; --ink-10: #f0f1f4;
+  --white:  #ffffff;
+  --accent: #2563eb; --accent-light: #eff6ff;
+  --green:  #16a34a; --green-light:  #f0fdf4;
+  --amber:  #d97706; --amber-light:  #fffbeb;
+  --red:    #dc2626;
+
+  --r-sm: 6px; --r: 10px; --r-lg: 16px; --r-xl: 20px;
+  --shadow-sm: 0 1px 4px rgba(15,17,23,.06);
+  --shadow:    0 4px 16px rgba(15,17,23,.08);
+
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'PingFang TC', sans-serif;
+  --mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  --ease: cubic-bezier(.25,.46,.45,.94); --t: 160ms;
+}
+
+html { scroll-behavior: smooth; }
+body {
+  font-family: var(--font); font-size: 14px; color: var(--ink);
+  background: var(--ink-10); -webkit-font-smoothing: antialiased; min-height: 100vh;
+}
+
+/* ── Header ─────────────────────────────────────────────────── */
+.header {
+  position: sticky; top: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 32px; height: 56px;
+  background: rgba(255,255,255,.92); backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--ink-10);
+}
+.header-left { display: flex; align-items: center; gap: 18px; }
+.header-logo {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 14px; font-weight: 600; color: var(--ink);
+  text-decoration: none; letter-spacing: -.2px;
+}
+.header-logo-mark {
+  width: 28px; height: 28px; background: var(--ink); border-radius: var(--r-sm);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 12px; font-weight: 700;
+}
+.nav-link {
+  font-size: 13px; color: var(--ink-60); text-decoration: none;
+  padding: 4px 0; border-bottom: 1.5px solid transparent; transition: color var(--t);
+}
+.nav-link:hover { color: var(--ink); }
+.nav-link.active { color: var(--ink); border-bottom-color: var(--ink); font-weight: 500; }
+.header-right { display: flex; align-items: center; gap: 12px; }
+.header-email { font-size: 12px; color: var(--ink-30); }
+.signout-btn {
+  font-size: 12px; color: var(--ink-60); background: none; border: none;
+  cursor: pointer; padding: 4px 8px; border-radius: var(--r-sm);
+  transition: all var(--t); font-family: var(--font);
+}
+.signout-btn:hover { color: var(--ink); background: var(--ink-10); }
+
+/* ── Wrap ───────────────────────────────────────────────────── */
+.wrap { max-width: 780px; margin: 0 auto; padding: 32px 24px 100px; }
+
+/* ── Page header ─────────────────────────────────────────────── */
+.page-header { margin-bottom: 28px; }
+.page-title { font-size: 22px; font-weight: 800; color: var(--ink); letter-spacing: -.5px; }
+.page-sub   { font-size: 13px; color: var(--ink-60); margin-top: 4px; }
+
+/* ── Card ───────────────────────────────────────────────────── */
+.card {
+  background: var(--white); border: 1.5px solid var(--ink-10); border-radius: var(--r-xl);
+  padding: 24px; margin-bottom: 16px;
+}
+.card-title {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--ink-30); margin-bottom: 18px; padding-bottom: 10px; border-bottom: 1px solid var(--ink-10);
+}
+
+/* ── Field grid ─────────────────────────────────────────────── */
+.field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.field      { display: flex; flex-direction: column; gap: 5px; }
+.field.full { grid-column: 1/-1; }
+.field-label {
+  font-size: 12px; font-weight: 500; color: var(--ink-60);
+  display: flex; align-items: center; gap: 6px;
+}
+.field-hint { font-size: 11px; color: var(--ink-30); font-weight: 400; }
+.field-input, .field-select, .field-textarea {
+  padding: 9px 12px; border: 1.5px solid var(--ink-10); border-radius: var(--r-sm);
+  font-size: 13px; color: var(--ink); font-family: var(--font);
+  background: var(--white); outline: none; transition: border-color var(--t);
+}
+.field-input:focus, .field-select:focus, .field-textarea:focus { border-color: var(--ink); }
+.field-textarea { resize: vertical; min-height: 72px; }
+
+/* ── Logo preview ────────────────────────────────────────────── */
+.logo-preview {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 8px; padding: 12px 14px;
+  background: var(--ink-10); border-radius: var(--r);
+}
+.logo-mark-preview {
+  width: 28px; height: 28px; background: var(--ink); border-radius: var(--r-sm);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 12px; font-weight: 700;
+  flex-shrink: 0; transition: all var(--t);
+}
+.logo-name-preview { font-size: 13px; font-weight: 600; color: var(--ink); }
+.preview-label { font-size: 11px; color: var(--ink-30); margin-bottom: 4px; }
+
+/* ── Save bar ───────────────────────────────────────────────── */
+.save-bar {
+  position: sticky; bottom: 20px;
+  display: flex; justify-content: flex-end; align-items: center; gap: 12px;
+  margin-top: 8px;
+}
+.save-status { font-size: 12px; color: var(--ink-30); }
+.save-status.saving { color: var(--accent); }
+.save-status.saved  { color: var(--green); }
+.save-status.error  { color: var(--red); }
+.btn-save {
+  padding: 11px 26px; border-radius: var(--r-sm); border: none;
+  background: var(--ink); color: #fff; font-size: 13px; font-weight: 600;
+  cursor: pointer; transition: background var(--t); box-shadow: var(--shadow);
+  font-family: var(--font);
+}
+.btn-save:hover { background: #2a2d38; }
+.btn-save:disabled { background: var(--ink-30); cursor: not-allowed; }
+
+/* ── Loading / Error ────────────────────────────────────────── */
+.loading-state { text-align: center; padding: 80px 0; color: var(--ink-30); font-size: 14px; }
+.loading-state .spinner {
+  width: 24px; height: 24px; border: 2.5px solid var(--ink-10); border-top-color: var(--ink);
+  border-radius: 50%; margin: 0 auto 14px; animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Toast ──────────────────────────────────────────────────── */
+.toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(16px);
+  background: var(--ink); color: #fff; font-size: 13px;
+  padding: 11px 22px; border-radius: var(--r); white-space: nowrap;
+  opacity: 0; pointer-events: none; transition: all .25s var(--ease); z-index: 999;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ── RWD ────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .header { padding: 0 16px; }
+  .wrap { padding: 20px 16px 80px; }
+  .field-grid { grid-template-columns: 1fr; }
+  .field.full { grid-column: 1; }
+}
+</style>
+<link rel="stylesheet" href="admin-ui.css">
+</head>
+<body>
+
+<header class="header">
+  <div class="header-left">
+    <a class="header-logo" href="dashboard.html">
+      <div class="header-logo-mark" id="headerLogoMark">W</div>
+      Website CRM
+    </a>
+    <nav class="admin-nav" aria-label="後台主選單">
+      <a class="nav-link" href="dashboard.html">總覽</a>
+      <a class="nav-link" href="quote-admin.html" title="需求、報價、合約、專案與收款都在各案件內操作">案件管理</a>
+      <a class="nav-link" href="dashboard.html#sec-payments" title="總覽頁的付款追蹤區塊">收款追蹤</a>
+      <a class="nav-link active" href="settings.html">系統設定</a>
+    </nav>
+  </div>
+  <div class="header-right">
+    <span class="header-email" id="headerEmail"></span>
+    <button class="signout-btn" onclick="signOut()">登出</button>
+  </div>
+</header>
+
+<div class="wrap" id="wrap">
+  <div class="loading-state"><div class="spinner"></div>載入設定中…</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════
+//  DEFAULTS
+// ══════════════════════════════════════════════════
+const DEFAULTS = {
+  studioName:       'Website Studio',
+  displayName:      'Website CRM',
+  contactEmail:     'nicoliu930226@gmail.com',
+  phone:            '',
+  lineId:           '',
+  websiteUrl:       '',
+  logoText:         'W',
+  quotationFooter:  '本報價單由 Website Studio 提供，如有疑問請直接聯繫業務。',
+  emailFooter:      'Website Studio',
+  bankInfo:         '',
+  taxId:            '',
+  address:          '',
+};
+
+// ══════════════════════════════════════════════════
+//  AUTH GUARD
+// ══════════════════════════════════════════════════
+function guardAdmin(onPass) {
+  auth.onAuthStateChanged(user => {
+    if (!user) {
+      window.location.replace(`admin-login.html?next=${encodeURIComponent(window.location.href)}`);
+      return;
+    }
+    if (!ALLOWED_EMAILS.includes(user.email)) {
+      auth.signOut();
+      window.location.replace('admin-login.html');
+      return;
+    }
+    document.getElementById('headerEmail').textContent = user.email;
+    onPass();
+  });
+}
+async function signOut() {
+  await auth.signOut();
+  window.location.replace('admin-login.html');
+}
+
+// ══════════════════════════════════════════════════
+//  LOAD
+// ══════════════════════════════════════════════════
+async function loadSettings() {
+  try {
+    const snap = await db.collection('settings').doc('studio').get();
+    const data = snap.exists ? { ...DEFAULTS, ...snap.data() } : { ...DEFAULTS };
+    renderSettings(data);
+  } catch (err) {
+    console.error(err);
+    document.getElementById('wrap').innerHTML =
+      `<div class="loading-state" style="color:var(--red)">⚠ 讀取失敗：${escapeHtml(err.message || String(err))}</div>`;
+  }
+}
+
+// ══════════════════════════════════════════════════
+//  RENDER
+// ══════════════════════════════════════════════════
+function renderSettings(d) {
+  const wrap = document.getElementById('wrap');
+
+  wrap.innerHTML = `
+    <div class="page-header">
+      <div class="page-title">系統設定</div>
+      <div class="page-sub">這裡的設定會套用到報價單顯示與對外資訊。</div>
+    </div>
+
+    <!-- 工作室基本資訊 -->
+    <div class="card">
+      <div class="card-title">工作室資訊</div>
+      <div class="field-grid">
+        <div class="field">
+          <label class="field-label">工作室名稱
+            <span class="field-hint">顯示於報價單頁首</span>
+          </label>
+          <input class="field-input" id="f-studioName" value="${escapeAttr(d.studioName)}" placeholder="Website Studio">
+        </div>
+        <div class="field">
+          <label class="field-label">系統顯示名稱
+            <span class="field-hint">後台頁首顯示的系統名稱</span>
+          </label>
+          <input class="field-input" id="f-displayName" value="${escapeAttr(d.displayName)}" placeholder="Website CRM">
+        </div>
+        <div class="field">
+          <label class="field-label">標誌文字
+            <span class="field-hint">頁首左上角的方形文字（最多 2 字）</span>
+          </label>
+          <input class="field-input" id="f-logoText" maxlength="2" value="${escapeAttr(d.logoText)}" placeholder="W" oninput="updateLogoPreview()">
+        </div>
+        <div class="field">
+          <label class="field-label">標誌預覽</label>
+          <div class="logo-preview">
+            <div class="logo-mark-preview" id="logoPreview">${escapeHtml(d.logoText || 'W')}</div>
+            <div class="logo-name-preview" id="logoNamePreview">${escapeHtml(d.displayName || 'Website CRM')}</div>
+          </div>
+        </div>
+        <div class="field full">
+          <label class="field-label">地址</label>
+          <input class="field-input" id="f-address" value="${escapeAttr(d.address)}" placeholder="台北市中山區...">
+        </div>
+      </div>
+    </div>
+
+    <!-- 聯絡資訊 -->
+    <div class="card">
+      <div class="card-title">聯絡資訊</div>
+      <div class="field-grid">
+        <div class="field">
+          <label class="field-label">Email</label>
+          <input class="field-input" id="f-contactEmail" type="email" value="${escapeAttr(d.contactEmail)}" placeholder="hello@example.com">
+        </div>
+        <div class="field">
+          <label class="field-label">電話</label>
+          <input class="field-input" id="f-phone" type="tel" value="${escapeAttr(d.phone)}" placeholder="02-1234-5678">
+        </div>
+        <div class="field">
+          <label class="field-label">LINE ID</label>
+          <input class="field-input" id="f-lineId" value="${escapeAttr(d.lineId)}" placeholder="@yourline">
+        </div>
+        <div class="field">
+          <label class="field-label">網站網址</label>
+          <input class="field-input" id="f-websiteUrl" type="url" value="${escapeAttr(d.websiteUrl)}" placeholder="https://example.com">
+        </div>
+      </div>
+    </div>
+
+    <!-- 報價單設定 -->
+    <div class="card">
+      <div class="card-title">報價單設定</div>
+      <div class="field-grid">
+        <div class="field full">
+          <label class="field-label">報價單頁尾說明
+            <span class="field-hint">顯示在客戶報價單頁面底部</span>
+          </label>
+          <textarea class="field-textarea" id="f-quotationFooter" placeholder="本報價單由 Website Studio 提供…">${escapeHtml(d.quotationFooter)}</textarea>
+        </div>
+        <div class="field full">
+          <label class="field-label">Email 頁尾簽名
+            <span class="field-hint">用於 Email 通知信底部（EmailJS）</span>
+          </label>
+          <textarea class="field-textarea" id="f-emailFooter" placeholder="Website Studio">${escapeHtml(d.emailFooter)}</textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- 財務資訊 -->
+    <div class="card">
+      <div class="card-title">財務資訊</div>
+      <div class="field-grid">
+        <div class="field">
+          <label class="field-label">統一編號</label>
+          <input class="field-input" id="f-taxId" value="${escapeAttr(d.taxId)}" placeholder="12345678">
+        </div>
+        <div class="field">
+          <label class="field-label">&nbsp;</label>
+          <!-- spacer -->
+        </div>
+        <div class="field full">
+          <label class="field-label">銀行匯款資訊
+            <span class="field-hint">可顯示於報價單付款說明</span>
+          </label>
+          <textarea class="field-textarea" id="f-bankInfo" placeholder="銀行：玉山銀行&#10;帳號：1234-5678-9012&#10;戶名：○○有限公司">${escapeHtml(d.bankInfo)}</textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="save-bar">
+      <span class="save-status" id="saveStatus"></span>
+      <button class="btn-save" id="saveBtn" onclick="saveSettings()">儲存設定</button>
+    </div>`;
+
+  // displayName 改動時同步 logo 預覽
+  const displayInput = document.getElementById('f-displayName');
+  if (displayInput) displayInput.addEventListener('input', updateLogoPreview);
+}
+
+function updateLogoPreview() {
+  const logoText    = (document.getElementById('f-logoText')?.value || 'W').slice(0, 2);
+  const displayName = document.getElementById('f-displayName')?.value || 'Website CRM';
+  const mark = document.getElementById('logoPreview');
+  const name = document.getElementById('logoNamePreview');
+  if (mark) mark.textContent = logoText;
+  if (name) name.textContent = displayName;
+}
+
+// ══════════════════════════════════════════════════
+//  SAVE
+// ══════════════════════════════════════════════════
+async function saveSettings() {
+  const btn      = document.getElementById('saveBtn');
+  const statusEl = document.getElementById('saveStatus');
+  btn.disabled = true;
+  statusEl.textContent = '儲存中…';
+  statusEl.className = 'save-status saving';
+
+  const payload = {
+    studioName:      document.getElementById('f-studioName').value.trim(),
+    displayName:     document.getElementById('f-displayName').value.trim(),
+    contactEmail:    document.getElementById('f-contactEmail').value.trim(),
+    phone:           document.getElementById('f-phone').value.trim(),
+    lineId:          document.getElementById('f-lineId').value.trim(),
+    websiteUrl:      document.getElementById('f-websiteUrl').value.trim(),
+    logoText:        (document.getElementById('f-logoText').value.trim() || 'W').slice(0, 2),
+    quotationFooter: document.getElementById('f-quotationFooter').value.trim(),
+    emailFooter:     document.getElementById('f-emailFooter').value.trim(),
+    bankInfo:        document.getElementById('f-bankInfo').value.trim(),
+    taxId:           document.getElementById('f-taxId').value.trim(),
+    address:         document.getElementById('f-address').value.trim(),
+    updatedAt:       firebase.firestore.FieldValue.serverTimestamp(),
+  };
+
+  // 基本驗證
+  if (!payload.studioName) {
+    showToast('⚠ 工作室名稱不能為空');
+    btn.disabled = false; statusEl.textContent = ''; return;
+  }
+
+  try {
+    // setDoc with merge：文件不存在時自動建立，存在時更新
+    await db.collection('settings').doc('studio').set(payload, { merge: true });
+
+    statusEl.textContent = '✓ 已儲存';
+    statusEl.className = 'save-status saved';
+    setTimeout(() => statusEl.textContent = '', 2500);
+    showToast('✓ 設定已儲存');
+  } catch (err) {
+    console.error(err);
+    statusEl.textContent = '⚠ 儲存失敗';
+    statusEl.className = 'save-status error';
+    showToast(`⚠ 儲存失敗：${err.message || err}`);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ══════════════════════════════════════════════════
+//  HELPERS
+// ══════════════════════════════════════════════════
+function escapeHtml(str) {
+  return String(str ?? '').replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+function escapeAttr(str) {
+  return String(str ?? '').replace(/"/g, '&quot;');
+}
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ══════════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════════
+guardAdmin(loadSettings);
+</script>
+</body>
+</html>

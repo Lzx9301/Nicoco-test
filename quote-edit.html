@@ -1,0 +1,1324 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>正式報價單</title>
+
+<!-- Firebase SDK (compat) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<!-- Security v1：正式報價共用工具（token、公開投影、客戶回覆對帳） -->
+<script src="quotation-shared.js"></script>
+<!-- Requirement Review v1：依 confirmedRequirements 初始化正式報價明細（只用已存下的估價區間，不重新計價） -->
+<script src="requirement-review.js"></script>
+<!-- 後台流程與介面整理 v1：報價相關判斷（待填價格、需求版本、有效期限）共用 -->
+<script src="admin-workflow.js"></script>
+<script>
+const FB_CONFIG = {
+  apiKey:            'AIzaSyD7LyLGlpY-FiSnEIzfwolg0aJCfDmlHwY',
+  authDomain:        'webproject-3914c.firebaseapp.com',
+  projectId:         'webproject-3914c',
+  storageBucket:     'webproject-3914c.firebasestorage.app',
+  messagingSenderId: '266695680346',
+  appId:             '1:266695680346:web:022b22dfa5d12f61df9363',
+};
+firebase.initializeApp(FB_CONFIG);
+const db   = firebase.firestore();
+const auth = firebase.auth();
+const ALLOWED_EMAILS = ['nicoliu930226@gmail.com'];
+</script>
+
+<style>
+/* ── Tokens（沿用同一套設計語言）─────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --ink:      #0f1117;
+  --ink-60:   #60636e;
+  --ink-30:   #b8bac4;
+  --ink-10:   #f0f1f4;
+  --white:    #ffffff;
+  --accent:   #2563eb;
+  --accent-light: #eff6ff;
+  --green:    #16a34a;
+  --green-light: #f0fdf4;
+  --amber:    #d97706;
+  --amber-light: #fffbeb;
+  --red:      #dc2626;
+  --purple:   #7c3aed;
+  --purple-light: #f5f3ff;
+
+  --r-sm: 6px;
+  --r:    10px;
+  --r-lg: 16px;
+  --r-xl: 20px;
+
+  --shadow-sm: 0 1px 4px rgba(15,17,23,.06);
+  --shadow:    0 4px 16px rgba(15,17,23,.08);
+  --shadow-lg: 0 12px 40px rgba(15,17,23,.10);
+
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'PingFang TC', sans-serif;
+  --mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+
+  --ease: cubic-bezier(.25,.46,.45,.94);
+  --t: 160ms;
+}
+
+html { scroll-behavior: smooth; }
+body {
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ink);
+  background: var(--ink-10);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+/* ── Header ─────────────────────────────────────────────────── */
+.header {
+  position: sticky; top: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 32px; height: 56px;
+  background: rgba(255,255,255,.92);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--ink-10);
+}
+.header-left { display: flex; align-items: center; gap: 18px; }
+.header-logo {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 14px; font-weight: 600; color: var(--ink);
+  text-decoration: none;
+}
+.header-logo-mark {
+  width: 28px; height: 28px; background: var(--ink); border-radius: var(--r-sm);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 12px; font-weight: 700;
+}
+.nav-link {
+  font-size: 13px; color: var(--ink-60); text-decoration: none;
+  padding: 4px 0; border-bottom: 1.5px solid transparent;
+  transition: color var(--t);
+}
+.nav-link:hover { color: var(--ink); }
+.nav-link.active { color: var(--ink); border-bottom-color: var(--ink); font-weight: 500; }
+.header-right { display: flex; align-items: center; gap: 12px; }
+.header-email { font-size: 12px; color: var(--ink-30); }
+.signout-btn {
+  font-size: 12px; color: var(--ink-60); background: none; border: none;
+  cursor: pointer; padding: 4px 8px; border-radius: var(--r-sm);
+  transition: all var(--t); font-family: var(--font);
+}
+.signout-btn:hover { color: var(--ink); background: var(--ink-10); }
+
+/* ── Breadcrumb ──────────────────────────────────────────────── */
+.breadcrumb {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--ink-30); margin-bottom: 14px; flex-wrap: wrap;
+}
+.breadcrumb a { color: var(--ink-60); text-decoration: none; transition: color var(--t); }
+.breadcrumb a:hover { color: var(--ink); }
+.breadcrumb-sep { color: var(--ink-30); user-select: none; }
+.breadcrumb-current { color: var(--ink); font-weight: 500; }
+
+/* ── Back buttons ────────────────────────────────────────────── */
+.back-buttons { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+.back-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; font-weight: 500; padding: 6px 14px; border-radius: var(--r-sm);
+  border: 1.5px solid var(--ink-10); background: var(--white); color: var(--ink-60);
+  text-decoration: none; cursor: pointer; transition: all var(--t); font-family: var(--font);
+}
+.back-btn:hover { border-color: var(--ink-30); color: var(--ink); background: var(--ink-10); }
+
+/* ── Layout ─────────────────────────────────────────────────── */
+.wrap { max-width: 920px; margin: 0 auto; padding: 32px 24px 100px; }
+
+/* ── Card ───────────────────────────────────────────────────── */
+.card {
+  background: var(--white); border: 1.5px solid var(--ink-10); border-radius: var(--r-xl);
+  padding: 24px; margin-bottom: 16px;
+}
+.card-title {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--ink-30); margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--ink-10);
+  display: flex; align-items: center; justify-content: space-between;
+}
+
+/* ── Customer info ──────────────────────────────────────────── */
+.quote-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+.qh-id { font-family: var(--mono); font-size: 12px; color: var(--ink-30); margin-bottom: 4px; }
+.qh-name { font-size: 22px; font-weight: 800; color: var(--ink); letter-spacing: -.5px; }
+.qh-meta { font-size: 13px; color: var(--ink-60); margin-top: 4px; }
+.status-badge {
+  display: inline-block; font-size: 12px; font-weight: 600;
+  padding: 5px 14px; border-radius: 20px; white-space: nowrap;
+}
+.qstatus-draft     { background: var(--ink-10); color: var(--ink-60); }
+.qstatus-sent       { background: var(--accent-light); color: var(--accent); }
+.qstatus-accepted   { background: var(--green-light); color: var(--green); }
+.qstatus-rejected   { background: #fef2f2; color: var(--red); }
+
+.info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.info-box { padding: 10px 12px; background: var(--ink-10); border-radius: var(--r-sm); }
+.info-label { font-size: 10px; color: var(--ink-30); margin-bottom: 2px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+.info-value { font-size: 13px; font-weight: 500; color: var(--ink); }
+
+.tag-section { margin-top: 14px; }
+.tag-section-label { font-size: 11px; font-weight: 600; color: var(--ink-60); margin-bottom: 6px; }
+.tags { display: flex; flex-wrap: wrap; gap: 5px; }
+.dtag { font-size: 11px; padding: 3px 9px; border-radius: 20px; background: var(--ink-10); color: var(--ink-60); font-weight: 500; }
+.dtag.eval { background: var(--amber-light); color: var(--amber); }
+.tag-empty { font-size: 12px; color: var(--ink-30); }
+
+/* ── Quotation items table ──────────────────────────────────── */
+.qi-table { width: 100%; border-collapse: collapse; }
+.qi-table thead th {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--ink-30); text-align: left; padding: 0 8px 8px; border-bottom: 1px solid var(--ink-10);
+}
+.qi-table thead th.num { text-align: right; }
+.qi-table tbody td { padding: 8px; vertical-align: top; border-bottom: 1px solid var(--ink-10); }
+.qi-table tbody tr:last-child td { border-bottom: none; }
+
+.qi-input, .qi-textarea {
+  width: 100%; padding: 7px 9px; border: 1.5px solid var(--ink-10); border-radius: var(--r-sm);
+  font-size: 13px; font-family: var(--font); color: var(--ink); background: var(--white);
+  outline: none; transition: border-color var(--t);
+}
+.qi-input:focus, .qi-textarea:focus { border-color: var(--ink); }
+.qi-input.num { text-align: right; font-variant-numeric: tabular-nums; }
+.qi-textarea { resize: vertical; min-height: 36px; font-size: 12px; color: var(--ink-60); }
+.qi-subtotal { font-size: 13px; font-weight: 600; color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; padding-top: 9px; }
+.qi-delete-btn {
+  width: 26px; height: 26px; border-radius: 50%; border: none; background: transparent;
+  color: var(--ink-30); font-size: 13px; cursor: pointer; transition: all var(--t);
+  display: flex; align-items: center; justify-content: center; margin-top: 4px;
+}
+.qi-delete-btn:hover { background: #fef2f2; color: var(--red); }
+
+.qi-add-btn {
+  margin-top: 12px; padding: 9px 18px; border-radius: var(--r-sm);
+  border: 1.5px dashed var(--ink-30); background: var(--white);
+  font-size: 13px; font-weight: 500; color: var(--ink-60);
+  cursor: pointer; transition: all var(--t); width: 100%;
+}
+.qi-add-btn:hover { border-color: var(--ink); color: var(--ink); background: var(--ink-10); }
+
+/* ── Totals ─────────────────────────────────────────────────── */
+.totals-box { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--ink-10); }
+.totals-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; font-size: 13px; }
+.totals-row .t-label { color: var(--ink-60); }
+.totals-row .t-value { font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
+.totals-row.editable .t-input {
+  width: 110px; padding: 6px 9px; border: 1.5px solid var(--ink-10); border-radius: var(--r-sm);
+  font-size: 13px; text-align: right; font-family: var(--font); outline: none;
+}
+.totals-row.editable .t-input:focus { border-color: var(--ink); }
+.totals-row.grand {
+  border-top: 1.5px solid var(--ink); margin-top: 6px; padding-top: 12px;
+}
+.totals-row.grand .t-label { font-size: 14px; font-weight: 700; color: var(--ink); }
+.totals-row.grand .t-value { font-size: 22px; font-weight: 800; color: var(--ink); letter-spacing: -.5px; }
+
+/* ── Editable fields (terms) ────────────────────────────────── */
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+.field-row:last-child { margin-bottom: 0; }
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field.full { grid-column: 1/-1; }
+.field-label { font-size: 12px; font-weight: 500; color: var(--ink-60); }
+.field-input, .field-select, .field-textarea {
+  padding: 9px 12px; border: 1.5px solid var(--ink-10); border-radius: var(--r-sm);
+  font-size: 13px; color: var(--ink); font-family: var(--font); background: var(--white);
+  outline: none; transition: border-color var(--t);
+}
+.field-input:focus, .field-select:focus, .field-textarea:focus { border-color: var(--ink); }
+.field-textarea { resize: vertical; min-height: 80px; }
+
+/* ── Save bar ───────────────────────────────────────────────── */
+.save-bar {
+  position: sticky; bottom: 20px;
+  display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-top: 8px;
+}
+.save-status { font-size: 12px; color: var(--ink-30); }
+.save-status.saving { color: var(--accent); }
+.save-status.saved  { color: var(--green); }
+.save-status.error  { color: var(--red); }
+.btn-save {
+  padding: 11px 26px; border-radius: var(--r-sm); border: none;
+  background: var(--ink); color: #fff; font-size: 13px; font-weight: 600;
+  cursor: pointer; transition: background var(--t); box-shadow: var(--shadow);
+}
+.btn-save:hover { background: #2a2d38; }
+.btn-save:disabled { background: var(--ink-30); cursor: not-allowed; }
+.btn-copy-link {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 10px 18px; border-radius: var(--r-sm);
+  background: var(--white); color: var(--ink-60);
+  font-size: 13px; font-weight: 500;
+  border: 1.5px solid var(--ink-10); cursor: pointer;
+  transition: all var(--t); font-family: var(--font);
+}
+.btn-copy-link:hover { border-color: var(--ink-30); color: var(--ink); }
+
+/* ── Loading / Error ────────────────────────────────────────── */
+.loading-state, .error-state { text-align: center; padding: 100px 0; color: var(--ink-30); font-size: 14px; }
+.loading-state .spinner {
+  width: 24px; height: 24px; border: 2.5px solid var(--ink-10); border-top-color: var(--ink);
+  border-radius: 50%; margin: 0 auto 14px; animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Toast ──────────────────────────────────────────────────── */
+.toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(16px);
+  background: var(--ink); color: #fff; font-size: 13px;
+  padding: 11px 20px; border-radius: var(--r); white-space: nowrap;
+  opacity: 0; pointer-events: none; transition: all .25s var(--ease); z-index: 999;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ── RWD ────────────────────────────────────────────────────── */
+@media (max-width: 760px) {
+  .info-grid, .field-row { grid-template-columns: 1fr; }
+  .quote-header { flex-direction: column; }
+  .qi-table thead { display: none; }
+  .qi-table, .qi-table tbody, .qi-table tr, .qi-table td { display: block; width: 100%; }
+  .qi-table tbody tr { border-bottom: 1px solid var(--ink-10); padding-bottom: 10px; margin-bottom: 10px; }
+  .qi-table td { border-bottom: none; padding: 4px 0; }
+}
+</style>
+<link rel="stylesheet" href="admin-ui.css">
+</head>
+<body>
+
+<header class="header">
+  <div class="header-left">
+    <a class="header-logo" href="dashboard.html">
+      <div class="header-logo-mark">W</div>
+      Website CRM
+    </a>
+    <nav class="admin-nav" aria-label="後台主選單">
+      <a class="nav-link" href="dashboard.html">總覽</a>
+      <a class="nav-link active" href="quote-admin.html" title="需求、報價、合約、專案與收款都在各案件內操作">案件管理</a>
+      <a class="nav-link" href="dashboard.html#sec-payments" title="總覽頁的付款追蹤區塊">收款追蹤</a>
+      <a class="nav-link" href="settings.html">系統設定</a>
+    </nav>
+  </div>
+  <div class="header-right">
+    <span class="header-email" id="headerEmail"></span>
+    <button class="signout-btn" onclick="signOut()">登出</button>
+  </div>
+</header>
+
+<div class="wrap" id="wrap">
+  <div class="loading-state"><div class="spinner"></div>載入案件中…</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════
+//  CONFIG
+// ══════════════════════════════════════════════════
+const QSTATUS_LABELS = { draft:'草稿', sent:'已送出', accepted:'已接受', rejected:'已拒絕' };
+const QSTATUS_ORDER  = ['draft','sent','accepted','rejected'];
+
+const PAYMENT_TERMS_PRESETS = ['50% 訂金，50% 尾款', '一次付清', '分期付款', '自訂'];
+
+let currentId = null;
+let currentData = null;
+let items = [];      // quotationItems 工作副本
+let dirty = false;
+// Requirement Review v1：目前這份明細是依哪一個需求確認版本產生的（null＝不是由確認需求產生）
+let itemsFromRevision = null;
+let regeneratedThisSession = false;
+
+// ══════════════════════════════════════════════════
+//  GET ?id= FROM URL
+// ══════════════════════════════════════════════════
+function getIdFromUrl() {
+  return new URLSearchParams(window.location.search).get('id');
+}
+
+// ══════════════════════════════════════════════════
+//  LOAD
+// ══════════════════════════════════════════════════
+async function loadQuote() {
+  currentId = getIdFromUrl();
+  const wrap = document.getElementById('wrap');
+
+  if (!currentId) {
+    wrap.innerHTML = '<div class="error-state">⚠ 網址缺少案件 id 參數（例如 ?id=Q-20260701-123）</div>';
+    return;
+  }
+  document.getElementById('backLink') && (document.getElementById('backLink').href = `quote-detail.html?id=${encodeURIComponent(currentId)}`);
+
+  try {
+    const docSnap = await db.collection('quotes').doc(currentId).get();
+    if (!docSnap.exists) {
+      wrap.innerHTML = `<div class="error-state">⚠ 找不到案件：${escapeHtml(currentId)}</div>`;
+      return;
+    }
+    currentData = docSnap.data();
+
+    // Security v1：客戶的接受／拒絕只寫在 publicQuotations，這裡先對帳同步回內部案件，
+    // 確保「客戶已接受」的報價在進入編輯畫面前就會被鎖定。
+    await NicocoQuotation.reconcile(db, currentId, currentData);
+
+    // 已有 quotationItems 就沿用（需求確認／重新確認都不會自動覆寫既有報價）。
+    // 沒有的話：有已確認的正式需求 → 依確認需求產生明細；否則沿用舊的預設帶入方式。
+    itemsFromRevision = currentData.quotationRequirementRevision || null;
+    if (currentData.quotationItems && currentData.quotationItems.length > 0) {
+      items = currentData.quotationItems.map(i => ({ ...i }));
+    } else if (currentData.confirmedRequirements) {
+      items = buildItemsFromConfirmed();
+      itemsFromRevision = currentData.confirmedRequirements.revision;
+    } else {
+      items = buildDefaultItems(currentData);
+    }
+
+    renderPage();
+  } catch (err) {
+    console.error(err);
+    wrap.innerHTML = `<div class="error-state">⚠ 讀取失敗：${escapeHtml(err.message || String(err))}</div>`;
+  }
+}
+
+// ══════════════════════════════════════════════════
+//  預設帶入：基礎建置費 + 加選功能（單價待手動輸入）
+// ══════════════════════════════════════════════════
+function genItemId() { return 'qi_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7); }
+
+// ── Requirement Review v1：confirmedRequirements → 正式報價明細（初始化參考，Admin 可自由修改）──
+function buildItemsFromConfirmed() {
+  return NicocoReview.quotationItemsFromConfirmed(currentData.confirmedRequirements, {
+    projectName: NicocoQuotation.projectDisplayName(currentData),
+    warrantyLabel: currentData.warrantyLabel || '',
+  });
+}
+function pendingPricingCount() { return NicocoReview.countPendingPricing(items); }
+
+// 已有報價明細時，只有 Admin 主動按下並二次確認才會用確認需求重建；已接受的報價不可重建
+function regenerateFromConfirmed() {
+  if (!currentData.confirmedRequirements) return;
+  if (isQuotationAccepted()) { showToast('正式報價已由客戶接受，無法重新產生'); return; }
+  if (!confirm('此操作將取代目前尚未接受的報價明細，是否繼續？')) return;
+  items = buildItemsFromConfirmed();
+  itemsFromRevision = currentData.confirmedRequirements.revision;
+  regeneratedThisSession = true;
+  renderItemsTable();
+  recalcTotals();
+  renderRequirementBanner();
+  markDirty();
+  showToast('✓ 已依確認需求重新產生報價草稿，確認金額後請按「儲存草稿」');
+}
+
+function renderRequirementBanner() {
+  const el = document.getElementById('requirementBanner');
+  if (!el) return;
+  const q = currentData || {};
+  const c = q.confirmedRequirements;
+  const box = 'border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.7;margin:14px 0 12px';
+  const detailHref = `quote-detail.html?id=${encodeURIComponent(currentId)}#reviewSection`;
+  if (c) {
+    const s = c.summary || {};
+    const stale = itemsFromRevision && Number(itemsFromRevision) !== Number(c.revision);
+    el.innerHTML = `
+      <div style="${box};background:var(--accent-light);border:1px solid #bfdbfe;color:#1e40af">
+        <strong>需求審核：已確認第 ${escapeHtml(c.revision)} 版</strong>
+        <div style="font-size:12px">已納入 ${Number(s.includedCount) || 0} 項・排除 ${Number(s.excludedCount) || 0} 項・待人工估價 ${Number(s.manualPricingCount) || 0} 項</div>
+        <div style="font-size:12px">${itemsFromRevision ? `本正式報價依據：需求審核第 ${escapeHtml(itemsFromRevision)} 版` : '目前的報價明細不是由確認需求產生（例如需求審核前就建立的報價）'}</div>
+        ${stale ? `<div style="font-size:12px;color:#92400e;font-weight:600">目前有效的需求確認版本是第 ${escapeHtml(c.revision)} 版，與這份報價依據的版本不同。</div>` : ''}
+        ${q.requirementReviewDraft ? `<div style="font-size:12px;color:#92400e">需求審核目前有尚未確認的工作稿（重新審核中）。<a href="${detailHref}" style="color:inherit">前往需求審核</a></div>` : ''}
+      </div>`;
+  } else if (q.requirementSnapshot) {
+    el.innerHTML = `
+      <div style="${box};background:var(--amber-light);border:1px solid #fde68a;color:#92400e">
+        <strong>需求尚未確認</strong>
+        <div style="font-size:12px">建議先完成需求審核，報價明細就能依正式需求產生；也可以沿用既有方式直接報價。</div>
+        <a href="${detailHref}" class="btn-copy-link" style="margin-top:8px;text-decoration:none;padding:6px 14px">前往需求審核 →</a>
+      </div>`;
+  } else {
+    el.innerHTML = `
+      <div style="${box};background:var(--ink-10);color:var(--ink-60)">
+        <strong style="color:var(--ink)">舊案件（沒有需求書）</strong>
+        <div style="font-size:12px">沿用既有報價方式：明細預設帶入基礎建置費與加選功能，請逐項確認金額。</div>
+      </div>`;
+  }
+
+  // ② 重新產生報價明細：只在已有儲存的明細時出現，必須由 Admin 主動按下並再次確認
+  const regen = document.getElementById('regenArea');
+  if (regen) {
+    const hasSaved = (q.quotationItems || []).length > 0;
+    const wantRegen = new URLSearchParams(window.location.search).get('regen') === '1';
+    const stale = c && itemsFromRevision && Number(itemsFromRevision) !== Number(c.revision);
+    regen.innerHTML = (c && hasSaved && !isQuotationAccepted()) ? `
+      <div style="font-size:12px;color:var(--ink-60);line-height:1.7;margin-bottom:12px;padding:10px 12px;border:1.5px dashed ${wantRegen || stale || !itemsFromRevision ? '#93c5fd' : 'var(--ink-10)'};border-radius:10px">
+        本案件已有正式報價明細。需求確認不會自動覆寫現有報價。
+        <button type="button" onclick="regenerateFromConfirmed()" style="font:inherit;font-size:12.5px;margin-left:6px;padding:6px 14px;border-radius:8px;cursor:pointer;border:1.5px solid ${wantRegen ? '#1e40af' : '#bfdbfe'};background:#fff;color:#1e40af">依確認需求重新產生報價草稿</button>
+      </div>` : (c && !hasSaved ? `<div style="font-size:12px;color:var(--ink-60);margin-bottom:10px">明細已依確認需求第 ${escapeHtml(itemsFromRevision || c.revision)} 版初始化，可自由調整後再儲存。</div>` : '');
+  }
+}
+
+function buildDefaultItems(q) {
+  const out = [];
+
+  // ① 基礎建置費 — 用系統估算的中位數金額帶入，若無（客製評估）則留 0
+  const basePrice = (q.priceMid !== null && q.priceMid !== undefined) ? Number(q.priceMid) : 0;
+  out.push({
+    id: genItemId(),
+    name: '基礎建置費',
+    // 這段說明會出現在客戶的正式報價單上：需求書案件使用中性名稱，不顯示底層方案類型
+    description: `${NicocoQuotation.projectDisplayName(q)}　含 RWD・基礎 SEO・SSL・部署・DNS`,
+    qty: 1,
+    unitPrice: basePrice,
+    subtotal: basePrice,
+  });
+
+  // ② 加選功能 — selectedItems 是純名稱字串陣列，沒有單價資料，預設 0 元讓使用者手動填
+  (q.selectedItems || []).forEach(name => {
+    out.push({
+      id: genItemId(),
+      name: name,
+      description: '',
+      qty: 1,
+      unitPrice: 0,
+      subtotal: 0,
+    });
+  });
+
+  // ③ 需評估項目 — 同樣先列出但金額 0，需求第 4 點要求「可先不計價，手動輸入」
+  (q.evaluationItems || []).forEach(name => {
+    out.push({
+      id: genItemId(),
+      name: `${name}（需評估）`,
+      description: '依現場訪談結果調整費用',
+      qty: 1,
+      unitPrice: 0,
+      subtotal: 0,
+    });
+  });
+
+  return out;
+}
+
+// ══════════════════════════════════════════════════
+//  RENDER
+// ══════════════════════════════════════════════════
+function fmtDate(ts) {
+  if (!ts) return '—';
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  return d.toLocaleDateString('zh-TW', { year:'numeric', month:'2-digit', day:'2-digit' });
+}
+function fmtMoney(n) { return `NT$${Number(n||0).toLocaleString()}`; }
+
+function fmtPriceRange(q) {
+  if (q.priceMid === null || q.priceMid === undefined) return '需評估';
+  return `${fmtMoney(q.priceMid)}（${q.priceRange || '—'}）`;
+}
+
+function renderPage() {
+  const q = currentData;
+  const wrap = document.getElementById('wrap');
+
+  const selectedTags = (q.selectedItems || []).map(n => `<span class="dtag">${escapeHtml(n)}</span>`).join('');
+  const evalTags      = (q.evaluationItems || []).map(n => `<span class="dtag eval">◆ ${escapeHtml(n)}</span>`).join('');
+
+  const qStatus = q.quotationStatus || 'draft';
+
+  wrap.innerHTML = `
+    <!-- Breadcrumb -->
+    <nav class="breadcrumb">
+      <span>🏠</span>
+      <a href="dashboard.html">總覽</a>
+      <span class="breadcrumb-sep">/</span>
+      <span>📋</span>
+      <a href="quote-admin.html">案件管理</a>
+      <span class="breadcrumb-sep">/</span>
+      <span>📄</span>
+      <a href="quote-detail.html?id=${encodeURIComponent(currentId)}">案件詳情</a>
+      <span class="breadcrumb-sep">/</span>
+      <span>📝</span>
+      <span class="breadcrumb-current">正式報價</span>
+    </nav>
+
+    <!-- Back buttons -->
+    <div class="back-buttons">
+      <a class="back-btn" href="quote-detail.html?id=${encodeURIComponent(currentId)}">← 返回案件詳情</a>
+      <a class="back-btn" href="dashboard.html">🏠 返回總覽</a>
+    </div>
+
+    <!-- 報價流程進度（依實際報價狀態顯示） -->
+    <div id="quoteFlowBar"></div>
+
+    <!-- ① 確認需求依據 -->
+    <div class="card" id="step-basis">
+      <div class="step-title"><span class="flow-no">1</span>確認需求依據</div>
+      <div class="quote-header">
+        <div>
+          <div class="qh-id">${escapeHtml(q.quoteId || currentId)}</div>
+          <div class="qh-name">${escapeHtml(q.name || '—')}　${q.company ? `<span style="font-size:14px;color:var(--ink-60);font-weight:500">／ ${escapeHtml(q.company)}</span>` : ''}</div>
+          <div class="qh-meta">${escapeHtml(q.email || '—')} ・ ${escapeHtml(q.projectType || '—')}</div>
+        </div>
+        <span class="status-badge qstatus-${qStatus}" id="qStatusBadge">${QSTATUS_LABELS[qStatus]}</span>
+      </div>
+      <!-- Requirement Review v1：這份報價依據的需求確認版本 -->
+      <div id="requirementBanner"></div>
+      <details class="fold">
+        <summary>估價系統資料 <span class="fold-hint">（系統估算價格、工期、加選與需評估項目）</span></summary>
+        <div class="info-grid">
+          <div class="info-box"><div class="info-label">系統估算價格</div><div class="info-value">${fmtPriceRange(q)}</div></div>
+          <div class="info-box"><div class="info-label">預估工期</div><div class="info-value">${escapeHtml(q.duration || '—')}</div></div>
+        </div>
+        <div class="tag-section">
+          <div class="tag-section-label">加選功能（系統估價時選擇）</div>
+          ${selectedTags ? `<div class="tags">${selectedTags}</div>` : '<div class="tag-empty">無</div>'}
+        </div>
+        <div class="tag-section">
+          <div class="tag-section-label">需評估項目</div>
+          ${evalTags ? `<div class="tags">${evalTags}</div>` : '<div class="tag-empty">無</div>'}
+        </div>
+      </details>
+    </div>
+
+    <!-- ② 建立報價明細 -->
+    <div class="card" id="step-items">
+      <div class="step-title"><span class="flow-no">2</span>建立報價明細 <span class="step-sub">既有明細不會被自動覆寫</span></div>
+      <div id="regenArea"></div>
+      <table class="qi-table">
+        <thead>
+          <tr>
+            <th style="width:22%">項目名稱</th>
+            <th style="width:30%">說明</th>
+            <th class="num" style="width:8%">數量</th>
+            <th class="num" style="width:14%">單價</th>
+            <th class="num" style="width:14%">小計</th>
+            <th style="width:32px"></th>
+          </tr>
+        </thead>
+        <tbody id="qiTableBody"></tbody>
+      </table>
+      <button class="qi-add-btn" onclick="addItem()">＋ 新增項目</button>
+    </div>
+
+    <!-- ③ 檢查價格與報價條件 -->
+    <div class="card" id="step-price">
+      <div class="step-title"><span class="flow-no">3</span>檢查價格與報價條件</div>
+      <div id="priceCheck"></div>
+      <div class="totals-box">
+        <div class="totals-row">
+          <span class="t-label">項目小計</span>
+          <span class="t-value" id="sumSubtotal">${fmtMoney(0)}</span>
+        </div>
+        <div class="totals-row editable">
+          <span class="t-label">折扣（輸入金額，例如 5000）</span>
+          <input class="t-input" id="f-discount" type="number" value="${q.quotationDiscount ?? 0}" oninput="recalcTotals()">
+        </div>
+        <div class="totals-row editable">
+          <span class="t-label">稅額（輸入金額，例如 5% 稅自行計算後填入）</span>
+          <input class="t-input" id="f-tax" type="number" value="${q.quotationTax ?? 0}" oninput="recalcTotals()">
+        </div>
+        <div class="totals-row grand">
+          <span class="t-label">總計</span>
+          <span class="t-value" id="sumTotal">${fmtMoney(0)}</span>
+        </div>
+        <div id="pendingTotalNote" style="font-size:12px;color:#92400e;text-align:right"></div>
+      </div>
+      <div class="field-row" style="margin-top:18px">
+        <div class="field">
+          <label class="field-label" for="f-validUntil">報價有效期限</label>
+          <input class="field-input" id="f-validUntil" type="date" value="${tsToDateInput(q.validUntil)}">
+        </div>
+        <div class="field">
+          <label class="field-label" for="f-paymentTerms">付款條件</label>
+          <select class="field-select" id="f-paymentTerms" onchange="onPaymentTermsChange()">
+            ${PAYMENT_TERMS_PRESETS.map(p => `<option value="${p}" ${(q.paymentTerms||PAYMENT_TERMS_PRESETS[0])===p?'selected':''}>${p}</option>`).join('')}
+          </select>
+          <input class="field-input" id="f-paymentTermsCustom" type="text" placeholder="輸入自訂付款條件"
+                 style="margin-top:8px;display:${ (q.paymentTerms && !PAYMENT_TERMS_PRESETS.slice(0,3).includes(q.paymentTerms)) ? 'block' : 'none'}"
+                 value="${ (q.paymentTerms && !PAYMENT_TERMS_PRESETS.slice(0,3).includes(q.paymentTerms)) ? escapeHtml(q.paymentTerms) : ''}">
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field full">
+          <label class="field-label" for="f-quotationNote">報價備註（客戶看得到）</label>
+          <textarea class="field-textarea" id="f-quotationNote" placeholder="例如：報價不含後續每年主機/網域續費，需另計…">${escapeHtml(q.quotationNote || '')}</textarea>
+        </div>
+      </div>
+      ${q.quotationUpdatedAt ? `<div style="font-size:11px;color:var(--ink-30);margin-top:4px">上次更新：${fmtDate(q.quotationUpdatedAt)}</div>` : ''}
+    </div>
+
+    <!-- ④ 儲存草稿　⑤ 發送正式報價（兩個不同操作，發送前會再檢查一次） -->
+    <div class="card" id="step-send">
+      <div class="step-title"><span class="flow-no">4</span>儲存草稿　<span class="flow-no">5</span>發送正式報價</div>
+      <div id="sendArea"></div>
+      <div class="save-bar" style="position:static;justify-content:flex-start;margin-top:6px">
+        <span class="save-status" id="saveStatus"></span>
+      </div>
+      <details class="fold qf-danger-zone" id="qeAdvanced">
+        <summary>進階：手動設定報價狀態 <span class="fold-hint">（例如客戶以電話／Email 回覆時由管理者代為標記）</span></summary>
+        <div style="font-size:12px;color:var(--ink-60);line-height:1.7;margin-bottom:10px">
+          選擇狀態後按「依所選狀態儲存」。標記為「已接受」會建立不可修改的接受紀錄並鎖定報價；有待填價格時無法設為「已送出」或「已接受」。
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label class="field-label" for="f-quotationStatus">報價狀態</label>
+            <select class="field-select" id="f-quotationStatus">
+              ${QSTATUS_ORDER.map(s => `<option value="${s}" ${qStatus===s?'selected':''}>${QSTATUS_LABELS[s]}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field" style="justify-content:flex-end">
+            <button class="btn-copy-link" id="saveBtn" onclick="saveQuotation()">依所選狀態儲存</button>
+          </div>
+        </div>
+      </details>
+    </div>
+
+    <!-- ⑥ 等待客戶回覆 -->
+    <div class="card" id="step-response">
+      <div class="step-title"><span class="flow-no">6</span>客戶回覆</div>
+      <div id="responseArea"></div>
+      <div class="qs-actions" style="margin-top:10px">
+        <button class="btn-copy-link" onclick="copyQuotationLink()" id="copyLinkBtn">🔗 複製客戶連結</button>
+      </div>
+    </div>
+
+    <!-- ⑦ 進入合約階段 -->
+    <div class="card" id="step-contract">
+      <div class="step-title"><span class="flow-no">7</span>進入合約階段</div>
+      <div id="contractArea"></div>
+    </div>`;
+
+  renderItemsTable();
+  recalcTotals();
+  renderRequirementBanner();
+  applyAcceptedLock();
+  renderQuoteFlow();
+  // 發送前檢查畫面開著時，有效期限／付款條件／備註變動也即時更新
+  ['f-validUntil','f-paymentTerms','f-paymentTermsCustom','f-quotationNote'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', () => { if (sendReviewOpen) renderQuoteFlow(); });
+  });
+
+  // 監聽欄位變動，標記 dirty
+  ['f-discount','f-tax','f-quotationStatus','f-validUntil','f-paymentTerms','f-paymentTermsCustom','f-quotationNote']
+    .forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('input', markDirty);
+    });
+}
+
+// ── Security v1：已接受的正式報價不可原地覆寫（Firestore Rules 同步強制）──
+function isQuotationAccepted() {
+  return !!(currentData && currentData.quotationStatus === 'accepted');
+}
+function applyAcceptedLock() {
+  if (!isQuotationAccepted()) return;
+  const wrap = document.getElementById('wrap');
+  wrap.querySelectorAll('.card input, .card textarea, .card select, .qi-add-btn, .qi-delete-btn')
+    .forEach(el => { el.disabled = true; });
+  const saveBtn = document.getElementById('saveBtn');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.style.opacity = '.4'; saveBtn.style.cursor = 'not-allowed'; }
+  if (!document.getElementById('acceptedLockNotice')) {
+    const n = document.createElement('div');
+    n.id = 'acceptedLockNotice';
+    n.style.cssText = 'background:var(--green-light);border:1px solid #bbf7d0;color:#166534;border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.6;margin-bottom:16px';
+    n.textContent = '此報價已由客戶接受。如需修改需求或金額，請建立新的報價版本／Change Request。';
+    const firstCard = wrap.querySelector('.card');
+    if (firstCard) wrap.insertBefore(n, firstCard);
+  }
+}
+
+// ══════════════════════════════════════════════════
+//  後台流程與介面整理 v1：報價操作順序
+//  「儲存草稿」與「發送正式報價」是兩個不同按鈕；兩者最後都呼叫既有的 saveQuotation()，
+//  只是先把報價狀態設成 draft／sent。所有既有的安全檢查（已接受鎖定、待填價格阻擋、
+//  安全連結 token、公開投影 batch）都在 saveQuotation() 內，完全沒有移除。
+// ══════════════════════════════════════════════════
+let sendReviewOpen = false;
+let flowBusy = false;
+
+function savedStatus() { return (currentData && currentData.quotationStatus) || 'draft'; }
+
+function currentTotals() {
+  const subtotal = items.reduce((sum, i) => sum + (Number(i.subtotal) || 0), 0);
+  const discount = Number(document.getElementById('f-discount')?.value || 0);
+  const tax      = Number(document.getElementById('f-tax')?.value || 0);
+  return { subtotal, discount, tax, total: subtotal - discount + tax };
+}
+
+function currentPaymentTerms() {
+  const sel = document.getElementById('f-paymentTerms');
+  const custom = document.getElementById('f-paymentTermsCustom');
+  if (!sel) return '';
+  return (sel.value === '自訂' && custom && custom.value.trim()) ? custom.value.trim() : sel.value;
+}
+
+function isBaseItem(i) {
+  return i.reqKey === 'base' || (!i.reqKey && (i.name === '基礎建置費' || i.name === '網站基礎建置'));
+}
+
+// ── 發送前檢查：block＝不能發送；warn＝提醒但可以發送；ok＝通過 ──
+function computeSendChecks() {
+  const out = [];
+  const q = currentData || {};
+  const c = q.confirmedRequirements;
+  const t = currentTotals();
+  const pending = pendingPricingCount();
+  if (!items.length) out.push({ level: 'block', text: '還沒有任何報價項目。' });
+  else out.push({ level: 'ok', text: `報價項目 ${items.length} 項。` });
+  const unnamed = items.filter(i => !String(i.name || '').trim()).length;
+  if (unnamed) out.push({ level: 'block', text: `有 ${unnamed} 個項目沒有名稱。` });
+  if (pending) out.push({ level: 'block', text: `尚有 ${pending} 項「待填價格」，客戶不應收到未定價的項目。` });
+  else out.push({ level: 'ok', text: '所有項目都已填寫價格。' });
+  if (t.total < 0) out.push({ level: 'block', text: '總計小於 0，請檢查折扣與稅額。' });
+  else if (t.total === 0) out.push({ level: 'warn', text: '總計為 NT$0，請確認是否正確。' });
+  else out.push({ level: 'ok', text: `總計 ${fmtMoney(t.total)}。` });
+  const vu = document.getElementById('f-validUntil')?.value || '';
+  if (!vu) out.push({ level: 'warn', text: '尚未設定報價有效期限（客戶可以一直回覆）。' });
+  else {
+    const today = new Date(); const pad = n => String(n).padStart(2, '0');
+    const todayStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+    if (vu <= todayStr) out.push({ level: 'block', text: `有效期限 ${vu} 已到期，客戶將無法接受或拒絕。請改為之後的日期。` });
+    else out.push({ level: 'ok', text: `有效期限至 ${vu}。` });
+  }
+  if (c) {
+    if (itemsFromRevision && Number(itemsFromRevision) !== Number(c.revision)) out.push({ level: 'warn', text: `報價引用需求第 ${itemsFromRevision} 版，但目前有效的需求是第 ${c.revision} 版。` });
+    else if (!itemsFromRevision) out.push({ level: 'warn', text: '需求已確認，但這份報價明細不是依確認需求產生。' });
+    else out.push({ level: 'ok', text: `報價依據為最新的需求第 ${c.revision} 版。` });
+    if (q.requirementReviewDraft) out.push({ level: 'warn', text: '需求審核目前有尚未確認的工作稿。' });
+  } else if (q.requirementSnapshot) {
+    out.push({ level: 'warn', text: '需求尚未審核（可沿用既有方式報價）。' });
+  } else {
+    out.push({ level: 'ok', text: '舊案件：沿用既有報價方式。' });
+  }
+  return out;
+}
+
+function clientPreviewHtml() {
+  const t = currentTotals();
+  const vu = document.getElementById('f-validUntil')?.value || '—';
+  const note = document.getElementById('f-quotationNote')?.value || '';
+  return `
+    <div class="qf-preview">
+      <div style="font-weight:700;margin-bottom:6px">客戶會看到的內容</div>
+      <table>
+        ${items.map(i => `<tr><td>${escapeHtml(i.name || '（未命名）')}${i.description ? `<div style="color:var(--ink-60);font-size:11.5px">${escapeHtml(i.description)}</div>` : ''}</td>
+          <td class="num">× ${Number(i.qty) || 0}</td>
+          <td class="num">${i.pricingPending ? '<strong style="color:var(--amber)">待填價格</strong>' : fmtMoney(i.subtotal)}</td></tr>`).join('')}
+        <tr><td>項目小計</td><td></td><td class="num">${fmtMoney(t.subtotal)}</td></tr>
+        ${t.discount ? `<tr><td>折扣</td><td></td><td class="num">−${fmtMoney(t.discount)}</td></tr>` : ''}
+        ${t.tax ? `<tr><td>稅額</td><td></td><td class="num">${fmtMoney(t.tax)}</td></tr>` : ''}
+        <tr><td><strong>總計</strong></td><td></td><td class="num"><strong>${fmtMoney(t.total)}</strong></td></tr>
+      </table>
+      <div style="margin-top:6px;color:var(--ink-60)">有效期限：${escapeHtml(vu)}　付款條件：${escapeHtml(currentPaymentTerms() || '—')}</div>
+      ${note ? `<div style="margin-top:4px;color:var(--ink-60)">備註：${escapeHtml(note)}</div>` : ''}
+    </div>`;
+}
+
+function renderQuoteFlow() {
+  if (!currentData) return;
+  const status = savedStatus();
+  const accepted = isQuotationAccepted();
+  const hasSaved = (currentData.quotationItems || []).length > 0;
+  const pending = pendingPricingCount();
+  const f = window.NicocoWorkflow ? NicocoWorkflow.quotationFacts(currentData, Date.now()) : { expired: false };
+
+  // 頂部：七個步驟的進度
+  const bar = document.getElementById('quoteFlowBar');
+  if (bar) {
+    const sentOrLater = status === 'sent' || status === 'accepted' || status === 'rejected';
+    const steps = [
+      ['確認需求依據', !!currentData.confirmedRequirements || !currentData.requirementSnapshot],
+      ['建立報價明細', hasSaved],
+      ['檢查價格', hasSaved && pending === 0],
+      ['儲存草稿', hasSaved],
+      ['發送正式報價', sentOrLater],
+      ['等待客戶回覆', status === 'accepted' || status === 'rejected'],
+      ['進入合約階段', false],
+    ];
+    let currentIdx = steps.findIndex(s => !s[1]);
+    if (status === 'sent') currentIdx = 5;
+    if (status === 'accepted') currentIdx = 6;
+    bar.innerHTML = `<ol class="qf-flow" aria-label="正式報價流程">${steps.map((s, i) =>
+      `<li class="${s[1] && i !== currentIdx ? 'is-done' : (i === currentIdx ? 'is-current' : '')}">${s[0]}${i === currentIdx ? '（目前）' : ''}</li>`).join('')}</ol>`;
+  }
+
+  // ③ 價格檢查摘要
+  const pc = document.getElementById('priceCheck');
+  if (pc) {
+    const base = items.filter(i => isBaseItem(i) && !i.pricingPending);
+    const add = items.filter(i => !isBaseItem(i) && !i.pricingPending);
+    const pend = items.filter(i => i.pricingPending);
+    const sum = arr => arr.reduce((s, i) => s + (Number(i.subtotal) || 0), 0);
+    pc.innerHTML = `
+      <div class="qs-grid">
+        <div class="qs-box"><div class="qs-label">基礎建置費</div><div class="qs-value">${base.length ? fmtMoney(sum(base)) : '—'}</div></div>
+        <div class="qs-box"><div class="qs-label">加價項目（${add.length} 項）</div><div class="qs-value">${fmtMoney(sum(add))}</div></div>
+        <div class="qs-box"${pend.length ? ' style="background:var(--amber-light)"' : ''}><div class="qs-label">待人工估價</div><div class="qs-value">${pend.length ? `${pend.length} 項・待填價格` : '無'}</div></div>
+      </div>
+      ${pend.length ? `<div class="qs-note">待填價格：${pend.map(i => escapeHtml(i.name)).join('、')}（未填寫前不會當成 NT$0 計入，也不能發送）</div>` : ''}`;
+  }
+  const ptn = document.getElementById('pendingTotalNote');
+  if (ptn) ptn.textContent = pending ? `另有 ${pending} 項待填價格尚未計入總計` : '';
+
+  // ④⑤ 儲存草稿／發送
+  const sa = document.getElementById('sendArea');
+  if (sa) {
+    let html = '';
+    if (accepted) {
+      html = `<div style="font-size:13px;color:#166534;line-height:1.7">客戶已接受，正式報價已鎖定，不能再儲存或發送。</div>`;
+    } else {
+      const hint = status === 'sent'
+        ? (f.expired ? '這份報價已送出但已過有效期限，客戶無法回覆。更新有效期限後可重新發送。' : '這份報價已送出，客戶可以透過連結回覆。若修改內容，需要重新發送，客戶連結會顯示最新版本。')
+        : status === 'rejected' ? '客戶已拒絕這份報價。修改後可以儲存草稿，或檢查後重新發送。'
+        : '「儲存草稿」只會儲存，客戶無法回覆；「發送正式報價」會先檢查內容，確認後客戶才能透過連結接受或拒絕。';
+      html = `<div style="font-size:12.5px;color:var(--ink-60);line-height:1.7;margin-bottom:12px">${hint}</div>`;
+      if (sendReviewOpen) {
+        const checks = computeSendChecks();
+        const blocking = checks.some(c => c.level === 'block');
+        const LBL = { ok: ['ck-ok', '✓ 通過'], warn: ['ck-warn', '！提醒'], block: ['ck-block', '✕ 未通過'] };
+        html += `
+          <div style="font-weight:700;font-size:13px;margin-bottom:6px">發送前檢查</div>
+          <ul class="qf-checks">${checks.map(c => `<li><span class="ck ${LBL[c.level][0]}">${LBL[c.level][1]}</span><span>${escapeHtml(c.text)}</span></li>`).join('')}</ul>
+          ${clientPreviewHtml()}
+          ${blocking ? '<div style="font-size:12.5px;color:var(--red);margin-bottom:10px">有未通過的項目，修正後才能發送。</div>' : ''}
+          <div class="qf-actions">
+            <button type="button" class="wf-btn-secondary qf-action" onclick="closeSendReview()">取消</button>
+            <button type="button" class="wf-btn-primary qf-action" id="confirmSendBtn" onclick="confirmSend()" ${blocking || flowBusy ? 'disabled' : ''}>${status === 'sent' ? '確認更新並發送' : '確認發送給客戶'}</button>
+          </div>`;
+      } else {
+        html += `
+          <div class="qf-actions">
+            ${status === 'sent' ? '' : `<button type="button" class="wf-btn-secondary qf-action" id="saveDraftBtn" onclick="saveDraft()" ${flowBusy ? 'disabled' : ''}>儲存草稿</button>`}
+            <button type="button" class="${status === 'sent' ? 'wf-btn-secondary' : 'wf-btn-primary'} qf-action" id="sendBtn" onclick="openSendReview()" ${flowBusy ? 'disabled' : ''}>${status === 'sent' ? '檢查並更新已送出的報價…' : '檢查並發送正式報價…'}</button>
+          </div>`;
+      }
+    }
+    sa.innerHTML = html;
+  }
+
+  // ⑥ 客戶回覆
+  const ra = document.getElementById('responseArea');
+  if (ra) {
+    const secure = window.NicocoQuotation && NicocoQuotation.hasSecureLink(currentData);
+    let text;
+    if (status === 'accepted') {
+      text = '<strong style="color:var(--green)">已接受</strong>　客戶已接受這份報價，系統已保存不可修改的接受紀錄。';
+    } else if (status === 'rejected') text = '<strong style="color:var(--red)">已拒絕</strong>　客戶已拒絕這份報價。';
+    else if (status === 'sent') text = f.expired ? '<strong style="color:var(--amber)">已過期</strong>　已超過有效期限，客戶目前無法回覆。' : '<strong>已送出・等待客戶回覆</strong>　把客戶連結傳給客戶，客戶可在連結頁面接受或拒絕。';
+    else text = '<strong>尚未發送</strong>　目前是草稿，客戶開啟連結只能預覽，不能回覆。';
+    ra.innerHTML = `<div style="font-size:13px;color:var(--ink-60);line-height:1.7">${text}</div>
+      <div style="font-size:12px;color:var(--ink-30);margin-top:4px">${secure ? '客戶連結為安全連結（不含案件編號）。' : (currentData.clientToken ? '舊的客戶連結已失效，下次儲存或發送時會產生新的安全連結。' : '儲存草稿或發送後才會產生客戶連結。')}</div>`;
+  }
+
+  // ⑦ 進入合約階段
+  const ca = document.getElementById('contractArea');
+  if (ca) {
+    ca.innerHTML = accepted
+      ? `<div style="font-size:13px;color:var(--ink-60);line-height:1.7;margin-bottom:10px">客戶已接受報價，報價維持鎖定（不能直接修改）。下一步：準備合約。</div>
+         <a class="wf-btn-primary" href="quote-detail.html?id=${encodeURIComponent(currentId)}#agreementSection">準備合約 →</a>`
+      : '<div style="font-size:12.5px;color:var(--ink-30)">客戶接受報價後，才會進入合約階段。</div>';
+  }
+}
+
+function setQuotationStatusSelect(v) {
+  const sel = document.getElementById('f-quotationStatus');
+  if (sel) sel.value = v;
+}
+
+// 共用：先設定狀態，再呼叫既有 saveQuotation()（所有阻擋與安全邏輯都在裡面）
+async function runFlowSave(status) {
+  if (flowBusy) return;
+  flowBusy = true;
+  renderQuoteFlow();
+  setQuotationStatusSelect(status);
+  try {
+    await saveQuotation();
+  } finally {
+    flowBusy = false;
+    setQuotationStatusSelect(savedStatus());
+    renderQuoteFlow();
+  }
+}
+
+function saveDraft() {
+  if (isQuotationAccepted()) { showToast('此報價已由客戶接受，無法直接修改。'); return; }
+  return runFlowSave('draft');
+}
+
+function openSendReview() {
+  if (isQuotationAccepted()) return;
+  sendReviewOpen = true;
+  renderQuoteFlow();
+  const el = document.getElementById('step-send');
+  if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function closeSendReview() {
+  sendReviewOpen = false;
+  renderQuoteFlow();
+}
+
+async function confirmSend() {
+  const checks = computeSendChecks();
+  if (checks.some(c => c.level === 'block')) { showToast('⚠ 發送前檢查有未通過的項目'); renderQuoteFlow(); return; }
+  sendReviewOpen = false;
+  await runFlowSave('sent');
+  if (savedStatus() === 'sent' && !dirty) showToast('✓ 正式報價已發送。請按「複製客戶連結」傳給客戶');
+}
+
+function onPaymentTermsChange() {
+  const sel = document.getElementById('f-paymentTerms');
+  const customInput = document.getElementById('f-paymentTermsCustom');
+  customInput.style.display = sel.value === '自訂' ? 'block' : 'none';
+  markDirty();
+}
+
+// ══════════════════════════════════════════════════
+//  ITEMS TABLE
+// ══════════════════════════════════════════════════
+function renderItemsTable() {
+  const tbody = document.getElementById('qiTableBody');
+  tbody.innerHTML = items.map(item => `
+    <tr data-id="${item.id}">
+      <td data-label="項目名稱"><input class="qi-input" aria-label="項目名稱" value="${escapeHtml(item.name)}" oninput="updateItem('${item.id}','name',this.value)"></td>
+      <td data-label="說明"><textarea class="qi-textarea" aria-label="說明" rows="1" oninput="updateItem('${item.id}','description',this.value)">${escapeHtml(item.description||'')}</textarea></td>
+      <td data-label="數量"><input class="qi-input num" aria-label="數量" type="number" min="0" step="1" value="${item.qty}" oninput="updateItem('${item.id}','qty',this.value)"></td>
+      <td data-label="單價"><input class="qi-input num" aria-label="單價" type="number" min="0" step="100" value="${item.pricingPending ? '' : item.unitPrice}"
+                 ${item.pricingPending ? 'placeholder="待填價格" style="border-color:var(--amber);background:var(--amber-light)"' : ''}
+                 oninput="updateItem('${item.id}','unitPrice',this.value)"></td>
+      <td class="qi-subtotal" data-label="小計">${item.pricingPending ? '<span style="color:var(--amber);font-weight:600">待填價格</span>' : fmtMoney(item.subtotal)}</td>
+      <td><button class="qi-delete-btn" onclick="deleteItem('${item.id}')" title="刪除項目">✕</button></td>
+    </tr>`).join('');
+}
+
+function updateItem(id, field, value) {
+  const item = items.find(i => i.id === id);
+  if (!item) return;
+
+  if (field === 'qty' || field === 'unitPrice') {
+    // 待填價格的項目：填入數字才算完成定價；清空則回到待填狀態（不會用 0 假裝已定價）
+    if (field === 'unitPrice' && 'pricingPending' in item) {
+      const wasPending = item.pricingPending;
+      item.pricingPending = String(value).trim() === '';
+      item.unitPrice = item.pricingPending ? null : (Number(value) || 0);
+      if (wasPending !== item.pricingPending) {
+        const inp = document.querySelector(`tr[data-id="${id}"] input[step="100"]`);
+        if (inp) { inp.style.borderColor = item.pricingPending ? 'var(--amber)' : ''; inp.style.background = item.pricingPending ? 'var(--amber-light)' : ''; }
+        renderRequirementBanner();
+      }
+    } else {
+      item[field] = Number(value) || 0;
+    }
+    item.subtotal = (Number(item.qty) || 0) * (Number(item.unitPrice) || 0);
+    if (item.pricingPending) {
+      const cell = document.querySelector(`tr[data-id="${id}"] .qi-subtotal`);
+      if (cell) cell.innerHTML = '<span style="color:var(--amber);font-weight:600">待填價格</span>';
+      recalcTotals(); markDirty(); return;
+    }
+    // 只更新該列小計顯示，不整表重繪（避免輸入時 focus 跳掉）
+    const row = document.querySelector(`tr[data-id="${id}"] .qi-subtotal`);
+    if (row) row.textContent = fmtMoney(item.subtotal);
+  } else {
+    item[field] = value;
+  }
+  recalcTotals();
+  markDirty();
+}
+
+function addItem() {
+  items.push({ id: genItemId(), name: '', description: '', qty: 1, unitPrice: 0, subtotal: 0 });
+  renderItemsTable();
+  recalcTotals();
+  markDirty();
+}
+
+function deleteItem(id) {
+  items = items.filter(i => i.id !== id);
+  renderItemsTable();
+  recalcTotals();
+  markDirty();
+}
+
+// ══════════════════════════════════════════════════
+//  TOTALS
+// ══════════════════════════════════════════════════
+function recalcTotals() {
+  const subtotal = items.reduce((sum, i) => sum + (Number(i.subtotal) || 0), 0);
+  const discount = Number(document.getElementById('f-discount')?.value || 0);
+  const tax      = Number(document.getElementById('f-tax')?.value || 0);
+  const total    = subtotal - discount + tax;
+
+  const subtotalEl = document.getElementById('sumSubtotal');
+  const totalEl    = document.getElementById('sumTotal');
+  if (subtotalEl) subtotalEl.textContent = fmtMoney(subtotal);
+  if (totalEl)    totalEl.textContent    = fmtMoney(total);
+  renderQuoteFlow();
+}
+
+// ══════════════════════════════════════════════════
+//  HELPERS
+// ══════════════════════════════════════════════════
+function tsToDateInput(ts) {
+  if (!ts) return '';
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  const pad = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
+
+function escapeHtml(str) {
+  return String(str ?? '').replace(/[&<>"']/g, c => ({
+    '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+  }[c]));
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3200);
+}
+
+function markDirty() { dirty = true; }
+
+// ══════════════════════════════════════════════════
+//  TOKEN
+// ══════════════════════════════════════════════════
+function generateClientToken() {
+  // 32 字元隨機 hex（128-bit entropy）
+  const arr = new Uint8Array(16);
+  crypto.getRandomValues(arr);
+  return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// ══════════════════════════════════════════════════
+//  COPY QUOTATION LINK
+// ══════════════════════════════════════════════════
+function copyQuotationLink() {
+  // Security v1：連結只帶 clientToken（publicQuotations 的文件 ID）。舊版 token 一律視為失效。
+  if (!NicocoQuotation.hasSecureLink(currentData)) {
+    showToast(currentData && currentData.clientToken
+      ? '⚠ 舊的客戶連結已失效，請先「儲存草稿」或重新發送一次以產生新的安全連結'
+      : '⚠ 請先儲存草稿或發送正式報價，才能複製客戶連結');
+    return;
+  }
+  const url = NicocoQuotation.publicUrl(currentData.clientToken);
+  const hint = currentData.quotationStatus === 'draft'
+    ? '（目前為草稿：客戶可預覽但無法回覆，按「發送正式報價」後才能接受／拒絕）' : '';
+  navigator.clipboard.writeText(url).then(() => {
+    showToast('✓ 客戶連結已複製到剪貼簿' + hint);
+  }).catch(() => {
+    prompt('請手動複製此連結：', url);
+  });
+}
+
+// ══════════════════════════════════════════════════
+//  SAVE
+// ══════════════════════════════════════════════════
+function genActivityId() { return 'act_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8); }
+
+async function saveQuotation() {
+  if (!currentId) return;
+  if (isQuotationAccepted()) {
+    showToast('此報價已由客戶接受，無法直接修改。如需調整請建立新的報價版本／Change Request。');
+    return;
+  }
+  const btn = document.getElementById('saveBtn');
+  const statusEl = document.getElementById('saveStatus');
+
+  btn.disabled = true;
+  statusEl.textContent = '儲存中…';
+  statusEl.className = 'save-status saving';
+
+  const subtotal = items.reduce((sum, i) => sum + (Number(i.subtotal) || 0), 0);
+  const discount = Number(document.getElementById('f-discount').value || 0);
+  const tax      = Number(document.getElementById('f-tax').value || 0);
+  const total    = subtotal - discount + tax;
+
+  const validUntilRaw = document.getElementById('f-validUntil').value;
+  const paymentTermsSel    = document.getElementById('f-paymentTerms').value;
+  const paymentTermsCustom = document.getElementById('f-paymentTermsCustom').value.trim();
+  const paymentTerms = (paymentTermsSel === '自訂' && paymentTermsCustom) ? paymentTermsCustom : paymentTermsSel;
+
+  // 清理 items：subtotal 一律重算一次，避免任何不同步
+  const cleanItems = items.map(i => {
+    const out = {
+      id: i.id,
+      name: i.name,
+      description: i.description || '',
+      qty: Number(i.qty) || 0,
+      unitPrice: i.pricingPending ? null : (Number(i.unitPrice) || 0),
+      subtotal: i.pricingPending ? 0 : (Number(i.qty) || 0) * (Number(i.unitPrice) || 0),
+    };
+    // Requirement Review v1 的選填欄位：舊報價明細不會有，也不需要補
+    if (i.pricingPending) out.pricingPending = true;
+    if (i.reqKey) out.reqKey = i.reqKey;
+    return out;
+  });
+
+  // ── Token（Security v1）──
+  // 已有 Security v1 公開報價的案件：沿用同一個 token，客戶手上的連結不會失效。
+  // 沒有 token，或只有舊版 token（曾可被任意讀取）：產生新的 128-bit token。
+  const hasSecure   = NicocoQuotation.hasSecureLink(currentData);
+  const clientToken = hasSecure ? currentData.clientToken : NicocoQuotation.generateClientToken();
+  const version     = (Number(currentData && currentData.publicQuotationVersion) || 0) + 1;
+
+  const newStatus = document.getElementById('f-quotationStatus').value;
+
+  // 還有待填價格的項目時，不能送出或標記接受：客戶不應該收到含 NT$0 的待評估功能
+  const pendingCount = cleanItems.filter(i => i.pricingPending).length;
+  if (pendingCount > 0 && (newStatus === 'sent' || newStatus === 'accepted')) {
+    showToast(`⚠ 尚有 ${pendingCount} 項正式需求未完成定價，請填寫價格後再將報價設為「${QSTATUS_LABELS[newStatus]}」`);
+    btn.disabled = false;
+    statusEl.textContent = '';
+    return;
+  }
+
+  const quotation = {
+    quotationItems:     cleanItems,
+    quotationSubtotal:  subtotal,
+    quotationDiscount:  discount,
+    quotationTax:       tax,
+    quotationTotal:     total,
+    quotationStatus:    newStatus,
+    paymentTerms:       paymentTerms,
+    validUntil:         validUntilRaw ? firebase.firestore.Timestamp.fromDate(new Date(validUntilRaw)) : null,
+    quotationNote:      document.getElementById('f-quotationNote').value,
+  };
+
+  // Admin 直接把狀態存成「已接受」＝代客戶標記接受：會建立不可變的接受紀錄並鎖定報價
+  if (newStatus === 'accepted'
+      && !confirm('確定要將此報價標記為「已接受」嗎？\n系統會建立一份不可修改的接受紀錄，之後此報價內容與金額將無法再編輯。')) {
+    btn.disabled = false;
+    statusEl.textContent = '';
+    return;
+  }
+
+  const ts = firebase.firestore.FieldValue.serverTimestamp();
+  const payload = {
+    ...quotation,
+    quotationUpdatedAt: ts,
+    clientToken:        clientToken,
+    publicQuotationVersion: version,
+  };
+  if (itemsFromRevision) payload.quotationRequirementRevision = itemsFromRevision;
+
+  // 同時在 activityLogs 新增一筆紀錄
+  const newLog = {
+    id:        genActivityId(),
+    type:      'quote',
+    content:   `已建立 / 更新正式報價，總金額 ${fmtMoney(total)}`,
+    createdAt: firebase.firestore.Timestamp.now(),
+    createdBy: 'me',
+  };
+
+  try {
+    // 工作室顯示資料：投影到公開報價（settings/studio 只有 Admin 可讀，報價頁不再直接讀取）
+    let studio = {};
+    try {
+      const studioSnap = await db.collection('settings').doc('studio').get();
+      studio = studioSnap.exists ? studioSnap.data() : {};
+    } catch (e) { console.error('讀取 settings/studio 失敗：', e); }
+
+    const pub = NicocoQuotation.buildPublicProjection(currentId, currentData, quotation, studio, version, ts);
+
+    // 單一 batch：內部案件 + 公開投影（+ Admin 代標接受時的 acceptance 快照）一起成功或一起失敗
+    const quoteRef = db.collection('quotes').doc(currentId);
+    const batch = db.batch();
+    const logs = [newLog];
+    if (regeneratedThisSession) {
+      logs.push({
+        id: genActivityId(), type: 'quote',
+        content: `已依確認需求（Revision ${itemsFromRevision}）重新產生正式報價明細`,
+        createdAt: firebase.firestore.Timestamp.now(), createdBy: 'me',
+      });
+    }
+    batch.update(quoteRef, {
+      ...payload,
+      activityLogs: firebase.firestore.FieldValue.arrayUnion(...logs),
+    });
+    batch.set(db.collection('publicQuotations').doc(clientToken), pub);
+    if (newStatus === 'accepted') {
+      batch.set(quoteRef.collection('acceptances').doc(clientToken),
+                NicocoQuotation.buildAcceptance(clientToken, pub, 'admin', ts));
+    }
+    await batch.commit();
+
+    // 同步本地 currentData（讓 copyQuotationLink 與鎖定判斷立即生效）
+    if (currentData) {
+      currentData.clientToken = clientToken;
+      currentData.publicQuotationVersion = version;
+      currentData.quotationStatus = newStatus;
+      currentData.quotationItems = cleanItems;
+      if (itemsFromRevision) currentData.quotationRequirementRevision = itemsFromRevision;
+    }
+    regeneratedThisSession = false;
+    if (currentData) {
+      currentData.validUntil = quotation.validUntil;
+      currentData.quotationTotal = total;
+      currentData.paymentTerms = paymentTerms;
+    }
+    renderRequirementBanner();
+    applyAcceptedLock();
+    renderQuoteFlow();
+
+    dirty = false;
+    statusEl.textContent = '✓ 已儲存';
+    statusEl.className = 'save-status saved';
+
+    // 同步畫面上的狀態 badge
+    const badge = document.getElementById('qStatusBadge');
+    if (badge) {
+      badge.className = `status-badge qstatus-${payload.quotationStatus}`;
+      badge.textContent = QSTATUS_LABELS[payload.quotationStatus];
+    }
+
+    setTimeout(() => { if (!dirty) statusEl.textContent = ''; }, 2500);
+  } catch (err) {
+    console.error(err);
+    statusEl.textContent = '⚠ 儲存失敗';
+    statusEl.className = 'save-status error';
+    showToast(`⚠ 儲存失敗：${err.message || err}`);
+  } finally {
+    btn.disabled = isQuotationAccepted();   // 已接受的報價維持鎖定
+  }
+}
+
+window.addEventListener('beforeunload', (e) => {
+  if (dirty) { e.preventDefault(); e.returnValue = ''; }
+});
+
+// ══════════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════════
+// ══════════════════════════════════════════════════
+//  AUTH GUARD
+// ══════════════════════════════════════════════════
+function guardAdmin(onPass) {
+  auth.onAuthStateChanged(user => {
+    if (!user) {
+      window.location.replace(`admin-login.html?next=${encodeURIComponent(window.location.href)}`);
+      return;
+    }
+    if (!ALLOWED_EMAILS.includes(user.email)) {
+      auth.signOut();
+      window.location.replace('admin-login.html');
+      return;
+    }
+    const emailEl = document.getElementById('headerEmail');
+    if (emailEl) emailEl.textContent = user.email;
+    onPass();
+  });
+}
+async function signOut() {
+  await auth.signOut();
+  window.location.replace('admin-login.html');
+}
+
+guardAdmin(loadQuote);
+</script>
+</body>
+</html>

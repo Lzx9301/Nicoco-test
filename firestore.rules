@@ -1,0 +1,280 @@
+rules_version = '2';
+
+// ══════════════════════════════════════════════════════════════════════
+//  Nicoco Firestore Rules — Security v1
+//
+//  quotes/{quoteId}                         內部案件：只有 Admin 可讀寫；公開表單只能 create（白名單）
+//  quotes/{quoteId}/acceptances/{token}     客戶接受報價當下的快照：建立後任何人都不能改或刪（含 Admin）
+//  publicQuotations/{clientToken}           正式報價的客戶公開投影：文件 ID 即 capability token
+//  settings/{doc}                           只有 Admin
+//
+//  Quote ID 只是 identifier，不是 access secret。公開存取能力只來自 clientToken。
+// ══════════════════════════════════════════════════════════════════════
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Admin 判定：單一管理員 email allowlist（Google 登入，email 必須已驗證）──
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in ['nicoliu930226@gmail.com'];
+    }
+
+    // 某個頂層欄位在這次寫入前後完全相同（兩邊都不存在也算相同）
+    function unchanged(field) {
+      return request.resource.data.get(field, null) == resource.data.get(field, null);
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    //  quotes
+    // ══════════════════════════════════════════════════════════════════
+    match /quotes/{quoteId} {
+
+      // 公開表單 create：只允許 index.html saveQuoteToFirestore() 實際寫入的頂層欄位。
+      // 公開表單新增頂層欄位時，這份白名單必須同步更新。
+      // 不在白名單內＝一律拒絕：clientToken、quotation*、officialPrice、project、
+      // requirementReviewDraft、confirmedRequirements、previousConfirmedRequirements、
+      // acceptedQuotationSnapshot、publicQuotationVersion、notes、activityLogs…
+      function validPublicQuoteCreate() {
+        let d = request.resource.data;
+        return d.keys().hasOnly([
+            'quoteId', 'name', 'company', 'email', 'phone', 'lineId',
+            'projectType', 'priceMin', 'priceMax', 'priceMid', 'priceRange', 'duration',
+            'includedItems', 'selectedItems', 'evaluationItems',
+            'message', 'budget', 'launchDate',
+            'complexityLevel', 'complexityFeeMin', 'complexityFeeMax',
+            'isRush', 'rushFeeMin', 'rushFeeMax',
+            'warrantyFee', 'warrantyLabel', 'revisionPolicy',
+            'maintenanceKey', 'maintenanceLabel',
+            'requiresManualReview', 'pricingBreakdown',
+            'status', 'createdAt',
+            'requirementSnapshot'
+          ])
+          && d.keys().hasAll(['quoteId', 'name', 'email', 'status', 'createdAt'])
+          && d.status == 'new'
+          && d.quoteId == quoteId
+          // Q-日期-隨機字串。字尾長度 3–10：新版為 6 碼隨機字元；3 碼是為了讓 rollout 期間
+          // 仍被瀏覽器快取的舊版表單可以送出（ID 不是 secret，放寬不影響存取控制）。
+          && quoteId.matches('^Q-[0-9]{8}-[A-Z0-9]{3,10}$')
+          && d.createdAt == request.time
+          && d.name is string && d.name.size() > 0 && d.name.size() <= 200
+          && d.email is string && d.email.size() > 0 && d.email.size() <= 320;
+      }
+
+      // 客戶已接受的正式報價內容：不可原地覆寫
+      function acceptedQuotationUntouched() {
+        return unchanged('quotationItems')
+          && unchanged('quotationSubtotal')
+          && unchanged('quotationDiscount')
+          && unchanged('quotationTax')
+          && unchanged('quotationTotal')
+          && unchanged('paymentTerms')
+          && unchanged('validUntil')
+          && unchanged('quotationNote')
+          && unchanged('quotationStatus')
+          && unchanged('clientToken')
+          && unchanged('publicQuotationVersion');
+      }
+
+      // ── Requirement Review v1 ──
+      // requirementReviewDraft：Admin 工作稿。可建立、修改、刪除；
+      // 存在時 status 必須是 draft，revision 必須是「目前有效的確認版本 + 1」（還沒確認過就是 1）。
+      function reviewDraftOk() {
+        let after = request.resource.data;
+        return !('requirementReviewDraft' in after)
+          || unchanged('requirementReviewDraft')
+          || (after.requirementReviewDraft.status == 'draft'
+              && after.requirementReviewDraft.revision
+                 == after.get('confirmedRequirements', {'revision': 0}).revision + 1);
+      }
+
+      // confirmedRequirements：一般 update 不能改。唯一允許的改變是「確認」這個動作：
+      //   - 寫入前必須有同一個 revision 的工作稿，寫入後工作稿必須消失
+      //   - revision 只能是前一版 + 1（首次確認為 1）
+      //   - 上一個確認版本必須原樣搬到 previousConfirmedRequirements
+      // 因此不可能在單一寫入裡「把已確認的需求改回草稿並同時修改內容」；
+      // 重新開啟＝保留 confirmedRequirements 不動，另外建立 requirementReviewDraft。
+      function confirmedRequirementsOk() {
+        let before = resource.data;
+        let after = request.resource.data;
+        return (unchanged('confirmedRequirements') && unchanged('previousConfirmedRequirements'))
+          || (after.confirmedRequirements.status == 'confirmed'
+              && after.confirmedRequirements.revision
+                 == before.get('confirmedRequirements', {'revision': 0}).revision + 1
+              && after.confirmedRequirements.confirmedAt == request.time
+              && 'requirementReviewDraft' in before
+              && before.requirementReviewDraft.revision == after.confirmedRequirements.revision
+              && !('requirementReviewDraft' in after)
+              && after.get('previousConfirmedRequirements', null) == before.get('confirmedRequirements', null));
+      }
+
+      allow read: if isAdmin();
+
+      allow create: if validPublicQuoteCreate();
+
+      allow update: if isAdmin()
+        // 客戶原始需求：建立後任何 update 都不能改（資料修復請走 Console，不走一般 UI）
+        && unchanged('requirementSnapshot')
+        // 已接受的報價：鎖定
+        && (resource.data.get('quotationStatus', '') != 'accepted' || acceptedQuotationUntouched())
+        // 要把報價標成 accepted，同一次寫入完成後必須已存在對應的 acceptance 快照
+        && (request.resource.data.get('quotationStatus', '') != 'accepted'
+            || resource.data.get('quotationStatus', '') == 'accepted'
+            || existsAfter(/databases/$(database)/documents/quotes/$(quoteId)/acceptances/$(request.resource.data.clientToken)))
+        // Requirement Review v1：工作稿與確認版本的轉換限制
+        && reviewDraftOk()
+        && confirmedRequirementsOk();
+
+      allow delete: if false;
+
+      // ── acceptances：客戶接受報價當下的不可變快照；文件 ID ＝ 該份報價的 clientToken ──
+      match /acceptances/{acceptanceId} {
+
+        function validAcceptance() {
+          let pubPath = /databases/$(database)/documents/publicQuotations/$(acceptanceId);
+          let pubAfter = getAfter(pubPath).data;
+          let d = request.resource.data;
+          return d.keys().hasOnly([
+              'quoteId', 'clientToken', 'publicQuotationVersion', 'source',
+              'quotationItems', 'quotationSubtotal', 'quotationDiscount', 'quotationTax', 'quotationTotal',
+              'paymentTerms', 'validUntil', 'quotationNote',
+              'projectDisplayName', 'clientName', 'clientCompany',
+              'acceptedAt'
+            ])
+            && d.quoteId == quoteId
+            && d.clientToken == acceptanceId
+            && d.acceptedAt == request.time
+            // 這份快照必須對應同一份公開報價，而且這次寫入完成後該報價的狀態是 accepted
+            && pubAfter.quoteId == quoteId
+            && pubAfter.quotationStatus == 'accepted'
+            // 快照內容必須等於伺服器上的正式報價內容（客戶無法自行捏造）
+            && d.quotationItems == pubAfter.quotationItems
+            && d.quotationSubtotal == pubAfter.quotationSubtotal
+            && d.quotationDiscount == pubAfter.quotationDiscount
+            && d.quotationTax == pubAfter.quotationTax
+            && d.quotationTotal == pubAfter.quotationTotal
+            && d.paymentTerms == pubAfter.paymentTerms
+            && d.validUntil == pubAfter.validUntil
+            && d.quotationNote == pubAfter.quotationNote
+            && d.publicQuotationVersion == pubAfter.version
+            && d.projectDisplayName == pubAfter.projectDisplayName
+            && d.clientName == pubAfter.clientName
+            && d.clientCompany == pubAfter.clientCompany
+            && (
+              // 客戶接受：寫入前報價必須是「已送出」，且同一個 batch 把它轉成 accepted
+              (d.source == 'client' && get(pubPath).data.quotationStatus == 'sent')
+              // Admin 代為標記接受（例如客戶以其他方式確認）：寫入前不得已是 accepted
+              || (d.source == 'admin' && isAdmin()
+                  && (!exists(pubPath) || get(pubPath).data.quotationStatus != 'accepted'))
+            );
+        }
+
+        allow read: if isAdmin();
+        allow create: if validAcceptance();
+        allow update, delete: if false;   // 包含 Admin
+      }
+
+      // ── Project Scope / Tasks / Payment Milestones：維持 Admin-only ──
+      match /scopes/{scopeId} {
+        allow read, write: if isAdmin();
+      }
+      match /tasks/{taskId} {
+        allow read, write: if isAdmin();
+      }
+      match /paymentMilestones/{paymentId} {
+        allow read, write: if isAdmin();
+      }
+
+      // ── Change Requests：approved 後內容不可修改或刪除 ──
+      // 狀態流（依 quote-detail.html）：draft ⇄ proposed → approved｜rejected；draft → cancelled
+      match /changeRequests/{crId} {
+        function crUpdateOk() {
+          let fromStatus = resource.data.status;
+          let toStatus = request.resource.data.status;
+          let changed = request.resource.data.diff(resource.data).affectedKeys();
+          return (fromStatus == 'draft' && toStatus in ['draft', 'proposed', 'cancelled'])
+            || (fromStatus == 'proposed' && toStatus in ['draft', 'rejected', 'approved']
+                && changed.hasOnly(['status', 'updatedAt', 'approvedAt']))
+            // 已核准：只允許 createScopeFromCR() 記錄產生的 Scope ID
+            || (fromStatus == 'approved' && toStatus == 'approved' && changed.hasOnly(['scopeIds', 'updatedAt']));
+            // rejected / cancelled：不可再修改
+        }
+        allow read: if isAdmin();
+        allow create: if isAdmin() && request.resource.data.status == 'draft';
+        allow update: if isAdmin() && crUpdateOk();
+        allow delete: if isAdmin() && resource.data.status == 'draft';
+      }
+
+      // ── Agreements：draft 可編輯；之後只允許合法的狀態轉換 ──
+      // 狀態流（依 quote-detail.html）：draft ⇄ ready → signed → active → completed；draft／ready → cancelled
+      match /agreements/{agreementId} {
+        function agreementUpdateOk() {
+          let fromStatus = resource.data.status;
+          let toStatus = request.resource.data.status;
+          let changed = request.resource.data.diff(resource.data).affectedKeys();
+          return (fromStatus == 'draft' && toStatus in ['draft', 'ready', 'cancelled'])
+            || (fromStatus == 'ready' && toStatus in ['draft', 'cancelled'] && changed.hasOnly(['status', 'updatedAt']))
+            || (fromStatus == 'ready' && toStatus == 'signed' && changed.hasOnly(['status', 'updatedAt', 'signedAt']))
+            || (fromStatus == 'signed' && toStatus == 'active' && changed.hasOnly(['status', 'updatedAt']))
+            || (fromStatus == 'active' && toStatus == 'completed' && changed.hasOnly(['status', 'updatedAt']));
+            // completed / cancelled：不可再修改
+        }
+        allow read: if isAdmin();
+        allow create: if isAdmin() && request.resource.data.status == 'draft';
+        allow update: if isAdmin() && agreementUpdateOk();
+        allow delete: if isAdmin() && resource.data.status == 'draft';
+      }
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    //  publicQuotations：正式報價的客戶公開投影
+    //  文件 ID 是 128-bit 隨機 token。get 不需登入（知道完整 token 才取得到），list 一律禁止。
+    // ══════════════════════════════════════════════════════════════════
+    match /publicQuotations/{token} {
+
+      function validPublicQuotation() {
+        let d = request.resource.data;
+        return token.matches('^[a-f0-9]{32}$')
+          && d.quoteId is string
+          && d.quotationStatus in ['draft', 'sent', 'accepted', 'rejected']
+          // 標成 accepted 時，同一次寫入完成後必須已存在對應的 acceptance 快照
+          && (d.quotationStatus != 'accepted'
+              || existsAfter(/databases/$(database)/documents/quotes/$(d.quoteId)/acceptances/$(token)));
+      }
+
+      // 客戶回覆：只能把「已送出」的報價改成 accepted 或 rejected，而且只能改這兩個欄位
+      function validClientResponse() {
+        let d = request.resource.data;
+        return resource.data.quotationStatus == 'sent'
+          && d.diff(resource.data).affectedKeys().hasOnly(['quotationStatus', 'respondedAt'])
+          && d.respondedAt == request.time
+          && (resource.data.validUntil == null || request.time < resource.data.validUntil)
+          && (d.quotationStatus == 'rejected'
+              || (d.quotationStatus == 'accepted'
+                  && existsAfter(/databases/$(database)/documents/quotes/$(resource.data.quoteId)/acceptances/$(token))));
+      }
+
+      allow get: if true;
+      allow list: if false;
+
+      allow create: if isAdmin() && validPublicQuotation();
+
+      allow update: if
+        // Admin 更新（重新儲存、重新送出）：已接受的報價不可再改
+        (isAdmin()
+          && resource.data.quotationStatus != 'accepted'
+          && request.resource.data.quoteId == resource.data.quoteId
+          && validPublicQuotation())
+        || validClientResponse();
+
+      allow delete: if false;
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    //  settings：只有 Admin（報價頁需要的工作室顯示資料已投影到 publicQuotations.studio）
+    // ══════════════════════════════════════════════════════════════════
+    match /settings/{doc} {
+      allow read, write: if isAdmin();
+    }
+  }
+}

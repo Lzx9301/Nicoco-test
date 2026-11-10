@@ -1,0 +1,166 @@
+/* ══════════════════════════════════════════════════════════════════
+   Nicoco 後台共用介面樣式（後台流程與介面整理 v1）
+   只放版面與視覺；不含任何資料邏輯。各頁原本的 <style> 保持不變，
+   這份檔案在各頁 <head> 最後載入。
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── 主選單 ─────────────────────────────────────────── */
+.admin-nav { display: flex; gap: 16px; align-items: center; }
+.admin-nav .nav-link { white-space: nowrap; }
+
+@media (max-width: 760px) {
+  .header { height: auto !important; min-height: 52px; flex-wrap: wrap; row-gap: 4px; padding: 8px 16px !important; }
+  .header-left { flex-wrap: wrap; gap: 6px 14px !important; min-width: 0; }
+  .header-email { display: none; }
+  .admin-nav { gap: 14px; overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; }
+  .admin-nav .nav-link { font-size: 13px; padding: 6px 0; }
+}
+
+/* ── 流程分段標題（案件詳情：1～8）───────────────────── */
+.flow-heading {
+  display: flex; align-items: center; gap: 10px;
+  margin: 26px 0 10px; font-size: 14px; font-weight: 700; color: var(--ink, #0f1117);
+  scroll-margin-top: 72px;
+}
+.flow-heading:first-of-type { margin-top: 8px; }
+.flow-no {
+  flex-shrink: 0; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--ink, #0f1117); color: #fff; font-size: 12px; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.flow-sub { font-size: 12px; font-weight: 400; color: var(--ink-60, #60636e); }
+[id] { scroll-margin-top: 72px; }
+
+/* ── 流程導覽（案件頂部）───────────────────────────── */
+.wf-panel {
+  background: var(--white, #fff); border: 1.5px solid var(--ink-10, #f0f1f4); border-radius: 20px;
+  padding: 18px 20px; margin-bottom: 16px;
+}
+.wf-title { font-size: 11px; font-weight: 700; letter-spacing: .08em; color: var(--ink-30, #b8bac4); margin-bottom: 10px; }
+.wf-steps { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.wf-steps li { display: flex; align-items: stretch; }
+.wf-step {
+  font: inherit; text-align: left; cursor: pointer; min-width: 112px;
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 7px 11px; border-radius: 10px; border: 1.5px solid var(--ink-10, #f0f1f4);
+  background: var(--white, #fff); color: var(--ink, #0f1117);
+}
+.wf-step:hover { border-color: var(--ink-30, #b8bac4); }
+.wf-step:focus-visible { outline: 2px solid var(--accent, #2563eb); outline-offset: 2px; }
+.wf-step-name { font-size: 12.5px; font-weight: 600; display: flex; align-items: center; gap: 5px; }
+.wf-step-mark { font-size: 11px; width: 14px; text-align: center; }
+.wf-step-state { font-size: 11px; color: var(--ink-60, #60636e); line-height: 1.4; }
+.wf-step.is-done { background: var(--green-light, #f0fdf4); border-color: #bbf7d0; }
+.wf-step.is-done .wf-step-mark { color: var(--green, #16a34a); }
+.wf-step.is-current { border-color: var(--ink, #0f1117); }
+.wf-step.is-todo { color: var(--ink-60, #60636e); }
+.wf-step.is-unknown { border-style: dashed; color: var(--ink-60, #60636e); }
+.wf-step.is-na { opacity: .6; }
+.wf-step.is-attention { border-color: var(--amber, #d97706); background: var(--amber-light, #fffbeb); }
+.wf-step.is-focus { box-shadow: 0 0 0 2px var(--ink, #0f1117); }
+.wf-arrow { align-self: center; color: var(--ink-30, #b8bac4); font-size: 12px; padding: 0 1px; }
+
+.wf-next {
+  display: flex; gap: 14px; align-items: center; justify-content: space-between; flex-wrap: wrap;
+  border-top: 1px solid var(--ink-10, #f0f1f4); padding-top: 14px;
+}
+.wf-next-label { font-size: 11px; font-weight: 700; color: var(--ink-60, #60636e); margin-bottom: 2px; }
+.wf-next-title { font-size: 16px; font-weight: 800; color: var(--ink, #0f1117); }
+.wf-next-desc { font-size: 12.5px; color: var(--ink-60, #60636e); line-height: 1.6; margin-top: 2px; }
+.wf-next-notes { margin: 6px 0 0; padding: 0; list-style: none; font-size: 12px; color: #92400e; line-height: 1.6; }
+.wf-next-notes li::before { content: '・'; }
+.wf-btn-primary {
+  display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
+  padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer;
+  background: var(--ink, #0f1117); color: #fff; font: inherit; font-size: 13px; font-weight: 600; text-decoration: none;
+}
+.wf-btn-primary:hover { background: #2a2d38; }
+.wf-btn-primary[disabled] { background: var(--ink-30, #b8bac4); cursor: not-allowed; }
+.wf-btn-secondary {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 9px 16px; border-radius: 8px; cursor: pointer; text-decoration: none;
+  background: var(--white, #fff); color: var(--ink, #0f1117); border: 1.5px solid var(--ink-10, #f0f1f4);
+  font: inherit; font-size: 13px; font-weight: 500;
+}
+.wf-btn-secondary:hover { border-color: var(--ink-30, #b8bac4); }
+.wf-btn-secondary[disabled] { opacity: .45; cursor: not-allowed; }
+
+/* 捲動到區塊時短暫標示 */
+@keyframes wfFlash { 0% { box-shadow: 0 0 0 3px rgba(37,99,235,.45); } 100% { box-shadow: 0 0 0 3px rgba(37,99,235,0); } }
+.wf-flash > .card:first-child, .wf-flash.card, .wf-flash > details { animation: wfFlash 1.6s ease-out; border-radius: 20px; }
+
+/* ── 收合區塊 ─────────────────────────────────────────── */
+details.fold { margin: 0; }
+details.fold > summary {
+  cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 13px; font-weight: 600; color: var(--ink, #0f1117); padding: 2px 0;
+}
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary::before { content: '▸'; font-size: 11px; color: var(--ink-30, #b8bac4); width: 12px; }
+details.fold[open] > summary::before { content: '▾'; }
+details.fold > summary .fold-hint { font-size: 12px; font-weight: 400; color: var(--ink-60, #60636e); }
+details.fold[open] > summary { margin-bottom: 12px; }
+
+/* ── 正式報價摘要（案件詳情）與報價流程（正式報價頁）────── */
+.qs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.qs-box { background: var(--ink-10, #f0f1f4); border-radius: 10px; padding: 10px 12px; min-width: 0; }
+.qs-label { font-size: 11px; color: var(--ink-60, #60636e); margin-bottom: 3px; }
+.qs-value { font-size: 13.5px; font-weight: 600; color: var(--ink, #0f1117); overflow-wrap: anywhere; }
+.qs-note { font-size: 12px; color: #92400e; line-height: 1.6; margin: -4px 0 12px; }
+.qs-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+.qf-flow { list-style: none; margin: 0 0 16px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; counter-reset: qf; }
+.qf-flow li {
+  counter-increment: qf; font-size: 12px; padding: 5px 10px; border-radius: 20px;
+  border: 1.5px solid var(--ink-10, #f0f1f4); background: var(--white, #fff); color: var(--ink-60, #60636e);
+}
+.qf-flow li::before { content: counter(qf) ' '; font-weight: 700; }
+.qf-flow li.is-done { background: var(--green-light, #f0fdf4); border-color: #bbf7d0; color: #166534; }
+.qf-flow li.is-done::after { content: ' ✓'; }
+.qf-flow li.is-current { border-color: var(--ink, #0f1117); color: var(--ink, #0f1117); font-weight: 600; }
+
+.step-title { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; color: var(--ink, #0f1117); margin-bottom: 12px; }
+.step-title .flow-no { width: 22px; height: 22px; font-size: 11.5px; }
+.step-title .step-sub { font-size: 12px; font-weight: 400; color: var(--ink-60, #60636e); }
+
+.qf-checks { list-style: none; margin: 0 0 12px; padding: 0; }
+.qf-checks li { display: flex; gap: 8px; font-size: 13px; line-height: 1.6; padding: 4px 0; border-bottom: 1px dashed var(--ink-10, #f0f1f4); }
+.qf-checks li:last-child { border-bottom: none; }
+.qf-checks .ck { flex-shrink: 0; font-weight: 700; min-width: 44px; }
+.qf-checks .ck-ok { color: var(--green, #16a34a); }
+.qf-checks .ck-warn { color: var(--amber, #d97706); }
+.qf-checks .ck-block { color: var(--red, #dc2626); }
+.qf-preview { border: 1.5px solid var(--ink-10, #f0f1f4); border-radius: 10px; padding: 12px; font-size: 12.5px; line-height: 1.7; margin-bottom: 12px; background: #fafafb; }
+.qf-preview table { width: 100%; border-collapse: collapse; }
+.qf-preview td { padding: 3px 4px; vertical-align: top; border-bottom: 1px solid var(--ink-10, #f0f1f4); }
+.qf-preview td.num { text-align: right; white-space: nowrap; }
+.qf-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: flex-end; }
+.qf-danger-zone { border-top: 1px solid var(--ink-10, #f0f1f4); margin-top: 14px; padding-top: 12px; }
+
+@media (max-width: 700px) {
+  .wf-panel { padding: 14px; border-radius: 16px; }
+  .wf-step { min-width: 0; flex: 1 1 calc(50% - 6px); }
+  .wf-steps li { flex: 1 1 calc(50% - 6px); }
+  .wf-arrow { display: none; }
+  .wf-next { flex-direction: column; align-items: stretch; }
+  .wf-btn-primary, .wf-btn-secondary { justify-content: center; }
+  .qf-actions { justify-content: stretch; }
+  .qf-actions > * { flex: 1 1 auto; justify-content: center; }
+}
+
+/* ── 提示訊息在手機上可換行 ─────────────────────────── */
+@media (max-width: 760px) {
+  .toast { white-space: normal !important; max-width: calc(100vw - 32px); text-align: center; }
+  /* 正式報價明細表：手機版每格顯示欄位名稱 */
+  .qi-table td[data-label]::before {
+    content: attr(data-label); display: block; font-size: 11px; color: var(--ink-60, #60636e); margin-bottom: 3px; font-weight: 600;
+  }
+  .qi-table td.qi-subtotal { text-align: left; }
+  .wf-steps li .wf-step { width: 100%; }
+  .back-buttons { flex-wrap: wrap; }
+}
+@media (max-width: 700px) {
+  .wf-steps li.wf-arrow { display: none; }
+  /* 案件詳情的「儲存變更」只對應最下方的案件管理欄位：手機版不再浮在畫面上遮住內容 */
+  #sec-admin + .save-bar { position: static; }
+}

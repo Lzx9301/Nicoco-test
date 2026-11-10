@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>管理員登入</title>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script>
+const FB_CONFIG = {
+  apiKey:            'AIzaSyD7LyLGlpY-FiSnEIzfwolg0aJCfDmlHwY',
+  authDomain:        'webproject-3914c.firebaseapp.com',
+  projectId:         'webproject-3914c',
+  storageBucket:     'webproject-3914c.firebasestorage.app',
+  messagingSenderId: '266695680346',
+  appId:             '1:266695680346:web:022b22dfa5d12f61df9363',
+};
+firebase.initializeApp(FB_CONFIG);
+const auth = firebase.auth();
+</script>
+
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --ink:    #0f1117; --ink-60: #60636e; --ink-30: #b8bac4; --ink-10: #f0f1f4;
+  --white:  #ffffff; --red: #dc2626;
+  --font:   -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'PingFang TC', sans-serif;
+  --r-sm:   6px; --r-lg: 16px; --r-xl: 20px;
+  --shadow: 0 4px 16px rgba(15,17,23,.08);
+}
+html, body { height: 100%; }
+body {
+  font-family: var(--font); font-size: 14px; color: var(--ink);
+  background: var(--ink-10); display: flex; align-items: center;
+  justify-content: center; -webkit-font-smoothing: antialiased;
+}
+
+.login-card {
+  background: var(--white); border: 1.5px solid var(--ink-10);
+  border-radius: var(--r-xl); padding: 40px 36px;
+  width: 100%; max-width: 360px; text-align: center;
+  box-shadow: var(--shadow);
+}
+.logo-mark {
+  width: 44px; height: 44px; background: var(--ink); border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 18px; font-weight: 800;
+  margin: 0 auto 16px;
+}
+.login-title { font-size: 18px; font-weight: 700; color: var(--ink); letter-spacing: -.3px; margin-bottom: 6px; }
+.login-sub   { font-size: 13px; color: var(--ink-60); margin-bottom: 28px; line-height: 1.5; }
+
+.btn-google {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: 100%; padding: 12px; border-radius: var(--r-sm);
+  border: 1.5px solid var(--ink-10); background: var(--white);
+  font-size: 14px; font-weight: 600; color: var(--ink);
+  cursor: pointer; transition: all .16s; font-family: var(--font);
+}
+.btn-google:hover { border-color: var(--ink-30); background: var(--ink-10); }
+.btn-google:disabled { opacity: .5; cursor: not-allowed; }
+.google-icon { width: 18px; height: 18px; flex-shrink: 0; }
+
+.error-msg {
+  display: none; margin-top: 16px;
+  background: #fef2f2; border: 1px solid #fecaca; border-radius: var(--r-sm);
+  padding: 10px 14px; font-size: 13px; color: var(--red); line-height: 1.5;
+}
+.error-msg.show { display: block; }
+
+.checking-msg {
+  font-size: 13px; color: var(--ink-30); margin-top: 12px; display: none;
+}
+.checking-msg.show { display: block; }
+</style>
+</head>
+<body>
+
+<div class="login-card">
+  <div class="logo-mark">W</div>
+  <div class="login-title">管理員登入</div>
+  <div class="login-sub">僅限授權的 Google 帳號登入後台系統</div>
+
+  <button class="btn-google" id="loginBtn" onclick="signInWithGoogle()">
+    <!-- Google SVG icon -->
+    <svg class="google-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.36-8.16 2.36-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+    </svg>
+    使用 Google 帳號登入
+  </button>
+
+  <div class="error-msg" id="errorMsg"></div>
+  <div class="checking-msg" id="checkingMsg">驗證中，請稍候…</div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════
+//  ADMIN CONFIG
+// ══════════════════════════════════════════════════
+const ALLOWED_EMAILS = ['nicoliu930226@gmail.com'];
+
+// 若已登入且是管理員，直接跳轉（避免管理員每次都看到登入頁）
+firebase.auth().onAuthStateChanged(user => {
+  if (user && ALLOWED_EMAILS.includes(user.email)) {
+    const next = new URLSearchParams(window.location.search).get('next') || 'dashboard.html';
+    window.location.replace(next);
+  }
+});
+
+// ── Google Login ──────────────────────────────────
+async function signInWithGoogle() {
+  const btn      = document.getElementById('loginBtn');
+  const errorEl  = document.getElementById('errorMsg');
+  const checkEl  = document.getElementById('checkingMsg');
+
+  btn.disabled = true;
+  errorEl.classList.remove('show');
+  checkEl.classList.add('show');
+
+  try {
+    const provider = new firebase.auth.GoogleAuthProvider();
+    const result   = await firebase.auth().signInWithPopup(provider);
+    const email    = result.user.email;
+
+    if (!ALLOWED_EMAILS.includes(email)) {
+      // 不在白名單：立即登出，顯示錯誤
+      await firebase.auth().signOut();
+      showError(`此帳號（${email}）沒有後台存取權限。`);
+      return;
+    }
+
+    // 合法管理員：跳轉
+    const next = new URLSearchParams(window.location.search).get('next') || 'dashboard.html';
+    window.location.replace(next);
+
+  } catch (err) {
+    if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
+      showError('登入視窗已關閉，請再試一次。');
+    } else {
+      showError(`登入失敗：${err.message}`);
+    }
+  } finally {
+    btn.disabled = false;
+    checkEl.classList.remove('show');
+  }
+}
+
+function showError(msg) {
+  const el = document.getElementById('errorMsg');
+  el.textContent = msg;
+  el.classList.add('show');
+}
+</script>
+</body>
+</html>

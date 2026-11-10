@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>案件管理後台</title>
+
+<!-- Firebase SDK (compat) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<!-- Security v1：正式報價共用工具（token、公開投影、客戶回覆對帳） -->
+<script src="quotation-shared.js"></script>
+<script>
+const FB_CONFIG = {
+  apiKey:            'AIzaSyD7LyLGlpY-FiSnEIzfwolg0aJCfDmlHwY',
+  authDomain:        'webproject-3914c.firebaseapp.com',
+  projectId:         'webproject-3914c',
+  storageBucket:     'webproject-3914c.firebasestorage.app',
+  messagingSenderId: '266695680346',
+  appId:             '1:266695680346:web:022b22dfa5d12f61df9363',
+};
+firebase.initializeApp(FB_CONFIG);
+const db   = firebase.firestore();
+const auth = firebase.auth();
+const ALLOWED_EMAILS = ['nicoliu930226@gmail.com'];
+</script>
+
+<style>
+/* ── Reset & Tokens（沿用 quote-v2.html 同一套）───────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --ink:      #0f1117;
+  --ink-60:   #60636e;
+  --ink-30:   #b8bac4;
+  --ink-10:   #f0f1f4;
+  --white:    #ffffff;
+  --accent:   #2563eb;
+  --accent-light: #eff6ff;
+  --green:    #16a34a;
+  --green-light: #f0fdf4;
+  --amber:    #d97706;
+  --amber-light: #fffbeb;
+  --red:      #dc2626;
+  --purple:   #7c3aed;
+  --purple-light: #f5f3ff;
+
+  --r-sm: 6px;
+  --r:    10px;
+  --r-lg: 16px;
+  --r-xl: 20px;
+
+  --shadow-sm: 0 1px 4px rgba(15,17,23,.06);
+  --shadow:    0 4px 16px rgba(15,17,23,.08);
+  --shadow-lg: 0 12px 40px rgba(15,17,23,.10);
+
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'PingFang TC', sans-serif;
+  --mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+
+  --ease: cubic-bezier(.25,.46,.45,.94);
+  --t: 160ms;
+}
+
+html { scroll-behavior: smooth; }
+body {
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ink);
+  background: var(--ink-10);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+/* ── Header ─────────────────────────────────────────────────── */
+.header {
+  position: sticky; top: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 32px; height: 56px;
+  background: rgba(255,255,255,.92);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--ink-10);
+}
+.header-left { display: flex; align-items: center; gap: 18px; }
+.header-logo {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 14px; font-weight: 600; color: var(--ink);
+  letter-spacing: -.2px; text-decoration: none;
+}
+.header-logo-mark {
+  width: 28px; height: 28px; background: var(--ink);
+  border-radius: var(--r-sm);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 12px; font-weight: 700; letter-spacing: -.5px;
+}
+.nav-link {
+  font-size: 13px; color: var(--ink-60); text-decoration: none;
+  padding: 4px 0; border-bottom: 1.5px solid transparent;
+  transition: color var(--t);
+}
+.nav-link:hover { color: var(--ink); }
+.nav-link.active { color: var(--ink); border-bottom-color: var(--ink); font-weight: 500; }
+.header-right { display: flex; align-items: center; gap: 12px; }
+.header-email { font-size: 12px; color: var(--ink-30); }
+.signout-btn {
+  font-size: 12px; color: var(--ink-60); background: none; border: none;
+  cursor: pointer; padding: 4px 8px; border-radius: var(--r-sm);
+  transition: all var(--t); font-family: var(--font);
+}
+.signout-btn:hover { color: var(--ink); background: var(--ink-10); }
+
+/* ── Layout ─────────────────────────────────────────────────── */
+.wrap { max-width: 1100px; margin: 0 auto; padding: 32px 24px 100px; }
+
+/* ── Stats Row ──────────────────────────────────────────────── */
+.stats-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 24px; }
+.stat-card {
+  background: var(--white); border: 1.5px solid var(--ink-10); border-radius: var(--r-lg);
+  padding: 16px 18px;
+}
+.stat-label { font-size: 11px; color: var(--ink-30); margin-bottom: 6px; font-weight: 500; }
+.stat-value { font-size: 24px; font-weight: 800; color: var(--ink); letter-spacing: -.8px; font-variant-numeric: tabular-nums; }
+.stat-card.stat-new .stat-value   { color: var(--accent); }
+.stat-card.stat-dev .stat-value   { color: var(--amber); }
+.stat-card.stat-done .stat-value  { color: var(--green); }
+
+/* ── Toolbar ────────────────────────────────────────────────── */
+.toolbar {
+  display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; align-items: center;
+}
+.search-box {
+  flex: 1; min-width: 220px; position: relative;
+}
+.search-input {
+  width: 100%; padding: 10px 14px 10px 36px;
+  border: 1.5px solid var(--ink-10); border-radius: var(--r-sm);
+  font-size: 13px; font-family: var(--font); color: var(--ink);
+  background: var(--white); outline: none; transition: border-color var(--t);
+}
+.search-input:focus { border-color: var(--ink); }
+.search-icon {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  font-size: 13px; color: var(--ink-30); pointer-events: none;
+}
+.filter-select {
+  padding: 10px 14px; border: 1.5px solid var(--ink-10); border-radius: var(--r-sm);
+  font-size: 13px; font-family: var(--font); color: var(--ink);
+  background: var(--white); outline: none; cursor: pointer;
+}
+.refresh-btn {
+  padding: 10px 16px; border-radius: var(--r-sm);
+  border: 1.5px solid var(--ink-10); background: var(--white);
+  font-size: 13px; font-weight: 500; color: var(--ink-60);
+  cursor: pointer; transition: all var(--t);
+}
+.refresh-btn:hover { border-color: var(--ink-30); color: var(--ink); }
+
+/* ── Quote Card ─────────────────────────────────────────────── */
+.quote-list { display: flex; flex-direction: column; gap: 10px; }
+.quote-card {
+  background: var(--white); border: 1.5px solid var(--ink-10); border-radius: var(--r-lg);
+  overflow: hidden; transition: border-color var(--t), box-shadow var(--t);
+}
+.quote-card:hover { box-shadow: var(--shadow-sm); }
+.quote-card.expanded { border-color: var(--ink-30); box-shadow: var(--shadow); }
+
+.quote-summary {
+  display: grid;
+  grid-template-columns: 130px 1fr 1fr 110px 110px 110px 28px;
+  align-items: center; gap: 12px;
+  padding: 14px 18px; cursor: pointer;
+}
+.qs-id { font-family: var(--mono); font-size: 11px; color: var(--ink-30); }
+.qs-name { font-size: 13px; font-weight: 600; color: var(--ink); }
+.qs-email { font-size: 12px; color: var(--ink-60); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qs-type { font-size: 12px; color: var(--ink-60); }
+.qs-price { font-size: 13px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.qs-date { font-size: 11px; color: var(--ink-30); }
+.qs-chevron { font-size: 12px; color: var(--ink-30); transition: transform var(--t); text-align: center; }
+.quote-card.expanded .qs-chevron { transform: rotate(180deg); }
+
+/* status badge */
+.status-badge {
+  display: inline-block; font-size: 11px; font-weight: 600;
+  padding: 3px 10px; border-radius: 20px; white-space: nowrap;
+}
+.status-new        { background: var(--accent-light); color: var(--accent); }
+.status-contacted   { background: var(--purple-light); color: var(--purple); }
+.status-meeting     { background: var(--amber-light); color: var(--amber); }
+.status-quoted      { background: #ecfeff; color: #0891b2; }
+.status-developing  { background: #fff7ed; color: #ea580c; }
+.status-done         { background: var(--green-light); color: var(--green); }
+.status-cancelled    { background: var(--ink-10); color: var(--ink-30); }
+
+/* ── Detail Panel ───────────────────────────────────────────── */
+.quote-detail {
+  display: none; padding: 0 18px 20px; border-top: 1px solid var(--ink-10);
+}
+.quote-detail.open { display: block; animation: fadeDown .18s var(--ease); }
+@keyframes fadeDown { from { opacity:0; transform:translateY(-6px);} to {opacity:1; transform:translateY(0);} }
+
+.detail-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  padding-top: 16px; margin-bottom: 16px;
+}
+.detail-box { padding: 10px 12px; background: var(--ink-10); border-radius: var(--r-sm); }
+.detail-label { font-size: 10px; color: var(--ink-30); margin-bottom: 2px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+.detail-value { font-size: 13px; font-weight: 500; color: var(--ink); }
+
+.detail-section { margin-bottom: 14px; }
+.detail-section-title {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--ink-30); margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--ink-10);
+}
+.detail-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+.dtag { font-size: 11px; padding: 3px 9px; border-radius: 20px; background: var(--ink-10); color: var(--ink-60); font-weight: 500; }
+.dtag.included { background: var(--green-light); color: var(--green); }
+.dtag.eval     { background: var(--amber-light); color: var(--amber); }
+.detail-empty { font-size: 12px; color: var(--ink-30); }
+
+.detail-note { font-size: 13px; color: var(--ink-60); line-height: 1.6; }
+
+/* status changer */
+.status-row {
+  display: flex; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px solid var(--ink-10);
+}
+.status-row-label { font-size: 12px; color: var(--ink-60); font-weight: 500; }
+.status-select {
+  padding: 7px 12px; border: 1.5px solid var(--ink-10); border-radius: var(--r-sm);
+  font-size: 12px; font-family: var(--font); color: var(--ink);
+  background: var(--white); outline: none; cursor: pointer;
+}
+.status-select:focus { border-color: var(--ink); }
+.status-saving { font-size: 11px; color: var(--ink-30); }
+.status-saving.show { color: var(--green); }
+
+/* ── Empty / Loading ────────────────────────────────────────── */
+.empty-state, .loading-state {
+  text-align: center; padding: 80px 0; color: var(--ink-30); font-size: 14px;
+}
+.loading-state .spinner {
+  width: 24px; height: 24px; border: 2.5px solid var(--ink-10); border-top-color: var(--ink);
+  border-radius: 50%; margin: 0 auto 14px; animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Toast ──────────────────────────────────────────────────── */
+.toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(16px);
+  background: var(--ink); color: #fff; font-size: 13px;
+  padding: 11px 20px; border-radius: var(--r); white-space: nowrap;
+  opacity: 0; pointer-events: none; transition: all .25s var(--ease); z-index: 999;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ── RWD ────────────────────────────────────────────────────── */
+@media (max-width: 860px) {
+  .stats-row { grid-template-columns: 1fr 1fr; }
+  .quote-summary {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "id chevron"
+      "name name"
+      "email email"
+      "type price"
+      "date date";
+    row-gap: 4px;
+  }
+  .qs-id     { grid-area: id; }
+  .qs-chevron{ grid-area: chevron; }
+  .qs-name   { grid-area: name; }
+  .qs-email  { grid-area: email; }
+  .qs-type   { grid-area: type; }
+  .qs-price  { grid-area: price; text-align: right; }
+  .qs-date   { grid-area: date; }
+  .detail-grid { grid-template-columns: 1fr; }
+}
+</style>
+<link rel="stylesheet" href="admin-ui.css">
+</head>
+<body>
+
+<header class="header">
+  <div class="header-left">
+    <a class="header-logo" href="dashboard.html">
+      <div class="header-logo-mark">W</div>
+      Website CRM
+    </a>
+    <nav class="admin-nav" aria-label="後台主選單">
+      <a class="nav-link" href="dashboard.html">總覽</a>
+      <a class="nav-link active" href="quote-admin.html" title="需求、報價、合約、專案與收款都在各案件內操作">案件管理</a>
+      <a class="nav-link" href="dashboard.html#sec-payments" title="總覽頁的付款追蹤區塊">收款追蹤</a>
+      <a class="nav-link" href="settings.html">系統設定</a>
+    </nav>
+  </div>
+  <div class="header-right">
+    <span class="header-email" id="headerUserEmail"></span>
+    <button class="signout-btn" onclick="signOut()">登出</button>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- Stats -->
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-label">總案件數</div>
+      <div class="stat-value" id="statTotal">—</div>
+    </div>
+    <div class="stat-card stat-new">
+      <div class="stat-label">新案件</div>
+      <div class="stat-value" id="statNew">—</div>
+    </div>
+    <div class="stat-card stat-dev">
+      <div class="stat-label">開發中</div>
+      <div class="stat-value" id="statDev">—</div>
+    </div>
+    <div class="stat-card stat-done">
+      <div class="stat-label">已完成</div>
+      <div class="stat-value" id="statDone">—</div>
+    </div>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <div class="search-box">
+      <span class="search-icon">🔍</span>
+      <input class="search-input" id="searchInput" placeholder="搜尋報價編號、姓名、Email、公司…">
+    </div>
+    <select class="filter-select" id="statusFilter">
+      <option value="all">全部</option>
+      <option value="new">新案件</option>
+      <option value="contacted">已聯絡</option>
+      <option value="meeting">需求訪談</option>
+      <option value="quoted">已報價</option>
+      <option value="developing">開發中</option>
+      <option value="done">完成</option>
+      <option value="cancelled">取消</option>
+    </select>
+    <button class="refresh-btn" onclick="loadQuotes()">↻ 重新整理</button>
+  </div>
+
+  <!-- List -->
+  <div id="listContainer">
+    <div class="loading-state"><div class="spinner"></div>載入案件中…</div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════
+//  CONFIG
+// ══════════════════════════════════════════════════
+const STATUS_LABELS = {
+  new:        '新案件',
+  contacted:  '已聯絡',
+  meeting:    '需求訪談',
+  quoted:     '已報價',
+  developing: '開發中',
+  done:       '完成',
+  cancelled:  '取消',
+};
+const STATUS_ORDER = ['new','contacted','meeting','quoted','developing','done','cancelled'];
+
+let allQuotes = [];        // 全部讀回的案件（已轉成 plain object）
+let expandedIds = new Set(); // 目前展開的卡片 id
+
+// ══════════════════════════════════════════════════
+//  LOAD
+// ══════════════════════════════════════════════════
+async function loadQuotes() {
+  const container = document.getElementById('listContainer');
+  container.innerHTML = '<div class="loading-state"><div class="spinner"></div>載入案件中…</div>';
+
+  try {
+    const snap = await db.collection('quotes').orderBy('createdAt', 'desc').get();
+    allQuotes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Security v1：把客戶在公開報價上的接受／拒絕同步回內部案件
+    await NicocoQuotation.reconcileAll(db, allQuotes);
+    renderStats();
+    renderList();
+  } catch (err) {
+    console.error(err);
+    container.innerHTML = `<div class="empty-state">⚠ 讀取失敗：${err.message || err}</div>`;
+  }
+}
+
+// ══════════════════════════════════════════════════
+//  STATS
+// ══════════════════════════════════════════════════
+function renderStats() {
+  document.getElementById('statTotal').textContent = allQuotes.length;
+  document.getElementById('statNew').textContent  = allQuotes.filter(q => q.status === 'new').length;
+  document.getElementById('statDev').textContent  = allQuotes.filter(q => q.status === 'developing').length;
+  document.getElementById('statDone').textContent = allQuotes.filter(q => q.status === 'done').length;
+}
+
+// ══════════════════════════════════════════════════
+//  FILTER + SEARCH
+// ══════════════════════════════════════════════════
+function getFilteredQuotes() {
+  const kw     = (document.getElementById('searchInput').value || '').trim().toLowerCase();
+  const status = document.getElementById('statusFilter').value;
+
+  return allQuotes.filter(q => {
+    if (status !== 'all' && q.status !== status) return false;
+    if (!kw) return true;
+    const haystack = [q.quoteId, q.name, q.email, q.company].join(' ').toLowerCase();
+    return haystack.includes(kw);
+  });
+}
+
+// ══════════════════════════════════════════════════
+//  RENDER LIST
+// ══════════════════════════════════════════════════
+function renderList() {
+  const container = document.getElementById('listContainer');
+  const list = getFilteredQuotes();
+
+  if (list.length === 0) {
+    container.innerHTML = '<div class="empty-state">沒有符合條件的案件</div>';
+    return;
+  }
+
+  container.innerHTML = `<div class="quote-list">${list.map(renderCard).join('')}</div>`;
+}
+
+function fmtDate(ts) {
+  if (!ts) return '—';
+  // Firestore Timestamp 物件有 toDate()
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  return d.toLocaleDateString('zh-TW', { year:'numeric', month:'2-digit', day:'2-digit' }) +
+         ' ' + d.toLocaleTimeString('zh-TW', { hour:'2-digit', minute:'2-digit' });
+}
+
+function fmtPrice(q) {
+  if (q.priceMid === null || q.priceMid === undefined) return '需評估';
+  return `NT$${Number(q.priceMid).toLocaleString()}`;
+}
+
+function renderCard(q) {
+  const isOpen = expandedIds.has(q.id);
+  const statusClass = `status-${q.status || 'new'}`;
+  const statusLabel = STATUS_LABELS[q.status] || q.status || '新案件';
+
+  return `
+    <div class="quote-card${isOpen ? ' expanded' : ''}" data-id="${q.id}">
+      <div class="quote-summary" onclick="toggleCard('${q.id}')">
+        <div class="qs-id">${q.quoteId || q.id}</div>
+        <div class="qs-name">${escapeHtml(q.name || '—')}</div>
+        <div class="qs-email">${escapeHtml(q.email || '—')}</div>
+        <div class="qs-type">${escapeHtml(q.projectType || '—')}</div>
+        <div class="qs-price">${fmtPrice(q)}</div>
+        <div><span class="status-badge ${statusClass}">${statusLabel}</span></div>
+        <div class="qs-chevron">▾</div>
+      </div>
+
+      <div class="quote-detail${isOpen ? ' open' : ''}" id="detail-${q.id}">
+        ${isOpen ? renderDetail(q) : ''}
+      </div>
+    </div>`;
+}
+
+function renderDetail(q) {
+  const includedTags = (q.includedItems || []).map(n => `<span class="dtag included">✓ ${escapeHtml(n)}</span>`).join('');
+  const selectedTags = (q.selectedItems || []).map(n => `<span class="dtag">${escapeHtml(n)}</span>`).join('');
+  const evalTags      = (q.evaluationItems || []).map(n => `<span class="dtag eval">◆ ${escapeHtml(n)}</span>`).join('');
+
+  return `
+    <div class="detail-grid">
+      <div class="detail-box"><div class="detail-label">公司</div><div class="detail-value">${escapeHtml(q.company || '—')}</div></div>
+      <div class="detail-box"><div class="detail-label">電話</div><div class="detail-value">${escapeHtml(q.phone || '—')}</div></div>
+      <div class="detail-box"><div class="detail-label">LINE</div><div class="detail-value">${escapeHtml(q.lineId || '—')}</div></div>
+      <div class="detail-box"><div class="detail-label">預算</div><div class="detail-value">${escapeHtml(q.budget || '—')}</div></div>
+      <div class="detail-box"><div class="detail-label">預計上線</div><div class="detail-value">${escapeHtml(q.launchDate || '—')}</div></div>
+      <div class="detail-box"><div class="detail-label">工期</div><div class="detail-value">${escapeHtml(q.duration || '—')}</div></div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-title">方案已包含</div>
+      ${includedTags ? `<div class="detail-tags">${includedTags}</div>` : '<div class="detail-empty">無</div>'}
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-title">加選功能</div>
+      ${selectedTags ? `<div class="detail-tags">${selectedTags}</div>` : '<div class="detail-empty">無</div>'}
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-title">需評估功能</div>
+      ${evalTags ? `<div class="detail-tags">${evalTags}</div>` : '<div class="detail-empty">無</div>'}
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-title">備註</div>
+      <div class="detail-note">${escapeHtml(q.message || '無')}</div>
+    </div>
+
+    <div class="detail-section" style="margin-bottom:0">
+      <div class="detail-section-title">建立時間</div>
+      <div class="detail-note">${fmtDate(q.createdAt)}</div>
+    </div>
+
+    <div class="status-row">
+      <span class="status-row-label">狀態</span>
+      <select class="status-select" onchange="updateStatus('${q.id}', this.value, this)">
+        ${STATUS_ORDER.map(s => `<option value="${s}" ${q.status===s?'selected':''}>${STATUS_LABELS[s]}</option>`).join('')}
+      </select>
+      <span class="status-saving" id="saving-${q.id}"></span>
+      <a href="quote-detail.html?id=${encodeURIComponent(q.id)}" style="margin-left:auto;font-size:12px;font-weight:600;color:var(--accent);text-decoration:none">查看完整案件 →</a>
+    </div>`;
+}
+
+// ══════════════════════════════════════════════════
+//  TOGGLE / EXPAND
+// ══════════════════════════════════════════════════
+function toggleCard(id) {
+  if (expandedIds.has(id)) expandedIds.delete(id);
+  else expandedIds.add(id);
+  renderList();
+}
+
+// ══════════════════════════════════════════════════
+//  UPDATE STATUS
+// ══════════════════════════════════════════════════
+async function updateStatus(id, newStatus, selectEl) {
+  const savingEl = document.getElementById(`saving-${id}`);
+  if (savingEl) { savingEl.textContent = '儲存中…'; savingEl.classList.remove('show'); }
+  selectEl.disabled = true;
+
+  try {
+    await db.collection('quotes').doc(id).update({ status: newStatus });
+
+    // 更新本地快取與畫面（不重新整理整個清單，避免展開狀態跳動）
+    const q = allQuotes.find(x => x.id === id);
+    if (q) q.status = newStatus;
+
+    const card = document.querySelector(`.quote-card[data-id="${id}"] .status-badge`);
+    if (card) {
+      card.className = `status-badge status-${newStatus}`;
+      card.textContent = STATUS_LABELS[newStatus];
+    }
+    renderStats();
+
+    if (savingEl) { savingEl.textContent = '✓ 已更新'; savingEl.classList.add('show'); setTimeout(() => savingEl.textContent='', 2000); }
+  } catch (err) {
+    console.error(err);
+    showToast(`⚠ 更新失敗：${err.message || err}`);
+    if (savingEl) savingEl.textContent = '⚠ 失敗';
+  } finally {
+    selectEl.disabled = false;
+  }
+}
+
+// ══════════════════════════════════════════════════
+//  HELPERS
+// ══════════════════════════════════════════════════
+function escapeHtml(str) {
+  return String(str ?? '').replace(/[&<>"']/g, c => ({
+    '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+  }[c]));
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3200);
+}
+
+// ══════════════════════════════════════════════════
+//  EVENTS
+// ══════════════════════════════════════════════════
+document.getElementById('searchInput').addEventListener('input', renderList);
+document.getElementById('statusFilter').addEventListener('change', renderList);
+
+// ══════════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════════
+// ══════════════════════════════════════════════════
+//  AUTH GUARD
+// ══════════════════════════════════════════════════
+function guardAdmin(onPass) {
+  auth.onAuthStateChanged(user => {
+    if (!user) {
+      window.location.replace(`admin-login.html?next=${encodeURIComponent(window.location.href)}`);
+      return;
+    }
+    if (!ALLOWED_EMAILS.includes(user.email)) {
+      auth.signOut();
+      window.location.replace('admin-login.html');
+      return;
+    }
+    const emailEl = document.getElementById('headerUserEmail');
+    if (emailEl) emailEl.textContent = user.email;
+    onPass();
+  });
+}
+async function signOut() {
+  await auth.signOut();
+  window.location.replace('admin-login.html');
+}
+
+guardAdmin(loadQuotes);
+</script>
+</body>
+</html>

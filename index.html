@@ -1,0 +1,2679 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>網站開發估價系統 v2</title>
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+<!-- Firebase SDK (compat) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<!-- Requirement Definition（ecom v1）：與 FEATURES 分離，index.html 與 quote-detail.html 共用 -->
+<!-- 價格資料（TYPE_CONFIG／FEATURES）：唯一來源，公開估價與後台需求審核共用 -->
+<script src="pricing-data.js"></script>
+<script src="requirements-ecom-v1.js"></script>
+<script>
+// ══════════════════════════════════════════════════
+//  FIREBASE CONFIG（compat 版，不用 import / module）
+// ══════════════════════════════════════════════════
+const FB_CONFIG = {
+  apiKey:            'AIzaSyD7LyLGlpY-FiSnEIzfwolg0aJCfDmlHwY',
+  authDomain:        'webproject-3914c.firebaseapp.com',
+  projectId:         'webproject-3914c',
+  storageBucket:     'webproject-3914c.firebasestorage.app',
+  messagingSenderId: '266695680346',
+  appId:             '1:266695680346:web:022b22dfa5d12f61df9363',
+};
+
+firebase.initializeApp(FB_CONFIG);
+const db = firebase.firestore();
+
+// ── 寫入 Firestore：quotes/{quoteId} ──────────────────
+// 暫時不做流水號查詢，quoteId 直接沿用 state.quoteId（前端產生的隨機編號）
+async function saveQuoteToFirestore(quoteId, data) {
+  const docData = {
+    quoteId,
+    name:            data.name,
+    company:         data.company,
+    email:           data.email,
+    phone:           data.phone,
+    lineId:          data.lineId,
+    projectType:     data.projectType,
+    priceMin:        data.priceMin,
+    priceMax:        data.priceMax,
+    priceMid:        data.priceMid,
+    priceRange:      data.priceRange,
+    duration:        data.duration,
+    includedItems:   data.includedItems,
+    selectedItems:   data.selectedItems,
+    evaluationItems: data.evaluationItems,
+    message:         data.message,
+    budget:          data.budget,
+    launchDate:      data.launchDate,
+    complexityLevel: data.complexityLevel || '',
+    complexityFeeMin: data.complexityFeeMin || 0,
+    complexityFeeMax: data.complexityFeeMax || 0,
+    isRush:          !!data.isRush,
+    rushFeeMin:      data.rushFeeMin || 0,
+    rushFeeMax:      data.rushFeeMax || 0,
+    warrantyFee:     data.warrantyFee || 0,
+    warrantyLabel:   data.warrantyLabel || '30 天內含保固',
+    revisionPolicy:  data.revisionPolicy || '',
+    maintenanceKey:  data.maintenanceKey || 'none',
+    maintenanceLabel:data.maintenanceLabel || '不需要',
+    requiresManualReview: !!data.requiresManualReview,
+    pricingBreakdown: data.pricingBreakdown || null,
+    status:          'new',
+    createdAt:       firebase.firestore.FieldValue.serverTimestamp(),
+  };
+  // Requirement + Estimate v1：客戶原始需求 Snapshot（additive；只在送出時寫入一次，後台不會改寫此欄位）。
+  // 非 ecom 類型沒有需求書，完全不寫入此欄位，文件結構與改版前相同。
+  if (data.requirementSnapshot) {
+    docData.requirementSnapshot = {
+      ...data.requirementSnapshot,
+      submittedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    };
+  }
+  await db.collection('quotes').doc(quoteId).set(docData);
+}
+
+// 掛到 window，讓主程式呼叫
+window._saveQuoteToFirestore = saveQuoteToFirestore;
+</script>
+<style>
+/* ── Reset & Tokens ─────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --ink:      #0f1117;
+  --ink-60:   #60636e;
+  --ink-30:   #b8bac4;
+  --ink-10:   #f0f1f4;
+  --white:    #ffffff;
+  --accent:   #2563eb;
+  --accent-light: #eff6ff;
+  --green:    #16a34a;
+  --green-light: #f0fdf4;
+  --amber:    #d97706;
+  --amber-light: #fffbeb;
+  --red:      #dc2626;
+
+  --r-sm: 6px;
+  --r:    10px;
+  --r-lg: 16px;
+  --r-xl: 20px;
+
+  --shadow-sm: 0 1px 4px rgba(15,17,23,.06);
+  --shadow:    0 4px 16px rgba(15,17,23,.08);
+  --shadow-lg: 0 12px 40px rgba(15,17,23,.10);
+
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'PingFang TC', sans-serif;
+  --mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+
+  --ease: cubic-bezier(.25,.46,.45,.94);
+  --t: 160ms;
+}
+
+html { scroll-behavior: smooth; }
+body {
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ink);
+  background: var(--white);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+/* ── Header ─────────────────────────────────────────────────── */
+.header {
+  position: sticky; top: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 32px; height: 56px;
+  background: rgba(255,255,255,.92);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--ink-10);
+}
+.header-logo {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 14px; font-weight: 600; color: var(--ink);
+  letter-spacing: -.2px;
+}
+.header-logo-mark {
+  width: 28px; height: 28px; background: var(--ink);
+  border-radius: var(--r-sm);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 12px; font-weight: 700; letter-spacing: -.5px;
+}
+.header-note { font-size: 12px; color: var(--ink-30); }
+
+/* ── Layout ──────────────────────────────────────────────────── */
+.wrap {
+  display: flex; gap: 0;
+  max-width: 1100px; margin: 0 auto;
+  padding: 48px 24px 100px;
+  align-items: flex-start;
+}
+.form-col { flex: 1; min-width: 0; padding-right: 48px; }
+.sidebar-col {
+  width: 260px; flex-shrink: 0;
+  position: sticky; top: 76px;
+}
+
+/* ── Progress ─────────────────────────────────────────────────── */
+.progress-bar {
+  display: flex; gap: 0; margin-bottom: 40px; position: relative;
+}
+.progress-bar::before {
+  content: ''; position: absolute; top: 13px; left: 0; right: 0; height: 1px;
+  background: var(--ink-10); z-index: 0;
+}
+.prog-step {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  position: relative; z-index: 1; cursor: default;
+}
+.prog-dot {
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--white); border: 1.5px solid var(--ink-10);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 600; color: var(--ink-30);
+  transition: all var(--t) var(--ease);
+}
+.prog-step.done .prog-dot {
+  background: var(--ink); border-color: var(--ink); color: #fff;
+}
+.prog-step.active .prog-dot {
+  background: var(--accent); border-color: var(--accent); color: #fff;
+  box-shadow: 0 0 0 4px var(--accent-light);
+}
+.prog-label {
+  font-size: 11px; color: var(--ink-30); white-space: nowrap;
+  transition: color var(--t);
+}
+.prog-step.active .prog-label { color: var(--accent); font-weight: 500; }
+.prog-step.done .prog-label { color: var(--ink-60); }
+.prog-step.done { cursor: pointer; }
+/* 手機寬度：五個步驟名稱放不下，改成只顯示圓點，目前步驟以一行文字顯示在進度列下方 */
+@media (max-width: 600px) {
+  .prog-label { display: none; }
+  .progress-bar { margin-bottom: 56px; }
+  .progress-bar::after {
+    content: attr(data-current); position: absolute; top: 38px; left: 0; right: 0;
+    text-align: center; font-size: 12.5px; font-weight: 500; color: var(--accent);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+}
+
+/* ── Step Container ──────────────────────────────────────────── */
+[data-step] { display: none; }
+[data-step].active { display: block; animation: fadeUp .22s var(--ease); }
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Step Header ─────────────────────────────────────────────── */
+.step-eyebrow {
+  font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink-30); margin-bottom: 8px;
+}
+.step-title {
+  font-size: 22px; font-weight: 700; color: var(--ink);
+  letter-spacing: -.4px; line-height: 1.25; margin-bottom: 6px;
+}
+.step-sub { font-size: 13px; color: var(--ink-60); margin-bottom: 28px; line-height: 1.55; }
+
+/* ── Type Cards ──────────────────────────────────────────────── */
+.type-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 8px; }
+.type-card {
+  position: relative; padding: 18px 20px;
+  border: 1.5px solid var(--ink-10); border-radius: var(--r-lg);
+  background: var(--white); cursor: pointer;
+  transition: border-color var(--t), box-shadow var(--t), transform var(--t);
+  user-select: none;
+}
+.type-card:hover { border-color: var(--ink-30); box-shadow: var(--shadow-sm); }
+.type-card.selected {
+  border-color: var(--ink); box-shadow: var(--shadow);
+}
+.type-card.selected::after {
+  content: '✓'; position: absolute; top: 14px; right: 14px;
+  width: 20px; height: 20px; background: var(--ink); color: #fff;
+  border-radius: 50%; font-size: 10px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+.type-card-icon { font-size: 20px; margin-bottom: 10px; }
+.type-card-name { font-size: 14px; font-weight: 600; color: var(--ink); margin-bottom: 4px; }
+.type-card-desc { font-size: 12px; color: var(--ink-60); line-height: 1.5; margin-bottom: 10px; }
+.type-card-price {
+  display: inline-block; font-size: 11px; font-weight: 600;
+  padding: 3px 8px; border-radius: 20px;
+  background: var(--ink-10); color: var(--ink-60);
+}
+.type-card.selected .type-card-price {
+  background: var(--accent-light); color: var(--accent);
+}
+.type-card-custom .type-card-price {
+  background: var(--amber-light); color: var(--amber);
+}
+
+/* ── Feature Groups ──────────────────────────────────────────── */
+.feature-group { margin-bottom: 24px; }
+.feature-group-title {
+  font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ink-30); margin-bottom: 10px; padding-bottom: 8px;
+  border-bottom: 1px solid var(--ink-10);
+}
+.feature-list { display: flex; flex-direction: column; gap: 6px; }
+.feature-item {
+  border: 1.5px solid var(--ink-10); border-radius: var(--r);
+  background: var(--white); overflow: hidden;
+  transition: border-color var(--t);
+}
+.feature-item.selected { border-color: var(--ink); }
+.feature-item.evaluate { border-style: dashed; }
+
+.feature-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; cursor: pointer;
+}
+.feature-check {
+  width: 17px; height: 17px; border-radius: 4px; flex-shrink: 0;
+  border: 1.5px solid var(--ink-30);
+  transition: all var(--t); display: flex; align-items: center; justify-content: center;
+}
+.feature-item.selected .feature-check {
+  background: var(--ink); border-color: var(--ink);
+}
+.feature-item.selected .feature-check::after {
+  content: ''; display: block; width: 4px; height: 7px;
+  border: 1.5px solid #fff; border-top: none; border-left: none;
+  transform: rotate(45deg) translateY(-1px);
+}
+.feature-name-wrap { flex: 1; min-width: 0; }
+.feature-name { font-size: 13px; font-weight: 500; color: var(--ink); }
+.badge {
+  display: inline-block; font-size: 10px; font-weight: 600;
+  padding: 1px 6px; border-radius: 20px; margin-left: 5px; vertical-align: middle;
+}
+.badge-must  { background: #fef2f2; color: var(--red); }
+.badge-rec   { background: var(--accent-light); color: var(--accent); }
+.badge-opt   { background: var(--ink-10); color: var(--ink-60); }
+.badge-eval  { background: var(--amber-light); color: var(--amber); }
+
+.feature-price {
+  font-size: 11px; color: var(--ink-30); flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.feature-price.free { color: var(--green); font-weight: 500; font-style: italic; }
+.feature-price.evaluate { color: var(--amber); font-weight: 600; }
+
+.info-btn {
+  width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0;
+  background: var(--ink-10); color: var(--ink-30);
+  font-size: 10px; font-weight: 700; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all var(--t);
+}
+.info-btn:hover { background: var(--ink); color: #fff; }
+.feature-desc {
+  display: none; padding: 0 14px 12px 41px;
+  font-size: 12px; color: var(--ink-60); line-height: 1.6;
+  border-top: 1px solid var(--ink-10);
+}
+.feature-desc.open { display: block; padding-top: 10px; }
+
+/* ── Evaluate Notice ─────────────────────────────────────────── */
+.evaluate-notice {
+  padding: 14px 16px; border-radius: var(--r);
+  background: var(--amber-light); border: 1px solid #fde68a;
+  font-size: 13px; color: #92400e; line-height: 1.6; margin-bottom: 20px;
+}
+.evaluate-notice strong { font-weight: 600; }
+
+/* ── Requirement（ecom 需求確認）────────────────────────────── */
+.pub-sec { margin-bottom: 24px; }
+.pub-sec .feature-group { margin-bottom: 6px; }
+.feature-item.locked .feature-row { cursor: not-allowed; }
+.feature-item.locked .feature-check { opacity: .55; }
+.badge-derived { background: var(--accent-light); color: var(--accent); }
+.badge-inc { background: var(--green-light); color: var(--green); }
+.req-intro {
+  background: var(--green-light); border: 1px solid #bbf7d0; border-radius: var(--r);
+  padding: 12px 14px; font-size: 13px; color: #166534; line-height: 1.6; margin-bottom: 16px;
+}
+.req-cat { border: 1.5px solid var(--ink-10); border-radius: var(--r); margin-bottom: 8px; background: var(--white); }
+.req-cat.open { border-color: var(--ink-30); }
+.req-cat-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; cursor: pointer; user-select: none; }
+.req-cat-name { font-size: 15px; font-weight: 600; color: var(--ink); }
+.req-cat-count { margin-left: auto; font-size: 12px; color: var(--ink-60); }
+.req-cat-caret { width: 18px; text-align: center; font-size: 16px; color: var(--ink-30); }
+.req-cat-body { padding: 0 16px 16px; }
+.req-base { background: var(--ink-10); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; }
+.req-base-title, .req-sub-title {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-30); margin-bottom: 6px;
+}
+.req-base-list { font-size: 12.5px; color: var(--ink-60); line-height: 1.7; }
+.req-note { font-size: 11.5px; color: var(--ink-60); line-height: 1.6; margin-top: 6px; }
+.req-node { margin-bottom: 6px; }
+.req-check {
+  display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px;
+  border: 1.5px solid var(--ink-10); border-radius: 8px; cursor: pointer;
+}
+.req-check.selected { border-color: var(--ink); }
+.req-check.disabled { cursor: not-allowed; background: var(--ink-10); }
+.req-check.disabled .req-label { color: var(--ink-30); }
+.req-box {
+  flex: none; width: 16px; height: 16px; margin-top: 2px; border: 1.5px solid var(--ink-30); border-radius: 4px;
+  font-size: 11px; line-height: 13px; text-align: center; color: var(--white);
+}
+.req-check.selected .req-box { background: var(--ink); border-color: var(--ink); }
+.req-main { flex: 1; min-width: 0; }
+.req-label { font-size: 13px; font-weight: 500; color: var(--ink); }
+.req-hint { font-size: 11.5px; color: var(--ink-60); line-height: 1.5; margin-top: 2px; }
+.req-dep { font-size: 11.5px; color: var(--amber); line-height: 1.5; margin-top: 2px; }
+.req-tag { flex: none; font-size: 11px; color: var(--ink-60); white-space: nowrap; margin-top: 2px; }
+.req-tag.base { color: var(--green); }
+.req-tag.eval { color: var(--amber); font-weight: 600; }
+.req-children { margin: 6px 0 8px 14px; padding-left: 12px; border-left: 2px solid var(--ink-10); }
+.req-q { margin: 10px 0 12px; }
+.req-q-label { font-size: 12.5px; font-weight: 600; color: var(--ink); margin-bottom: 6px; }
+.req-opts { display: flex; flex-direction: column; gap: 5px; }
+.req-opt {
+  display: flex; align-items: flex-start; gap: 8px; padding: 8px 11px; font-size: 12.5px; color: var(--ink-60);
+  border: 1.5px solid var(--ink-10); border-radius: 8px; cursor: pointer;
+}
+.req-opt.selected { border-color: var(--ink); color: var(--ink); font-weight: 500; }
+.req-opt.disabled { cursor: not-allowed; background: var(--ink-10); color: var(--ink-30); }
+.req-opt .req-box { margin-top: 1px; }
+.req-opt.radio .req-box { border-radius: 50%; }
+.req-opt.selected .req-box { background: var(--ink); border-color: var(--ink); }
+@media (max-width: 800px) {
+  .req-check, .req-opt { flex-wrap: wrap; }
+  .req-tag { margin-left: 26px; white-space: normal; }
+  .req-cat-head { flex-wrap: wrap; }
+  .req-children { margin-left: 4px; padding-left: 10px; }
+}
+.req-text {
+  width: 100%; font: inherit; font-size: 13px; color: var(--ink); padding: 8px 10px; margin-top: 5px;
+  border: 1.5px solid var(--ink-10); border-radius: 8px; background: var(--white); resize: vertical;
+}
+
+/* ── YN Toggle ───────────────────────────────────────────────── */
+.yn-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.yn-btn {
+  flex: 1; padding: 12px; border-radius: var(--r);
+  border: 1.5px solid var(--ink-10); background: var(--white);
+  font-size: 13px; font-weight: 500; color: var(--ink-60);
+  cursor: pointer; transition: all var(--t); text-align: center;
+}
+.yn-btn:hover { border-color: var(--ink-30); color: var(--ink); }
+.yn-btn.yes { border-color: var(--ink); color: var(--ink); background: var(--white); }
+.yn-btn.no  { border-color: var(--ink-10); color: var(--ink-30); background: var(--ink-10); }
+.sub-panel { display: none; }
+.sub-panel.open { display: block; }
+
+/* ── Conditions ──────────────────────────────────────────────── */
+.conditions-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.cond-group {
+  border: 1.5px solid var(--ink-10); border-radius: var(--r-lg); padding: 16px;
+}
+.cond-label {
+  font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ink-30); margin-bottom: 10px;
+}
+.cond-opts { display: flex; flex-direction: column; gap: 6px; }
+.cond-opt {
+  padding: 9px 12px; border-radius: var(--r-sm);
+  border: 1.5px solid var(--ink-10); background: var(--white);
+  font-size: 13px; color: var(--ink-60); cursor: pointer;
+  transition: all var(--t); display: flex; justify-content: space-between; align-items: center;
+}
+.cond-opt:hover { border-color: var(--ink-30); color: var(--ink); }
+.cond-opt.selected { border-color: var(--ink); color: var(--ink); font-weight: 500; }
+.cond-modifier { font-size: 11px; color: var(--ink-30); }
+.cond-opt.selected .cond-modifier { color: var(--accent); }
+
+/* ── Contact Form ────────────────────────────────────────────── */
+.contact-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field.full { grid-column: 1/-1; }
+.field-label { font-size: 12px; font-weight: 500; color: var(--ink-60); }
+.field-label .req { color: var(--red); margin-left: 2px; }
+.field-input, .field-select, .field-textarea {
+  padding: 10px 13px;
+  border: 1.5px solid var(--ink-10); border-radius: var(--r-sm);
+  font-size: 13px; color: var(--ink); font-family: var(--font);
+  background: var(--white); outline: none;
+  transition: border-color var(--t);
+}
+.field-input:focus, .field-select:focus, .field-textarea:focus {
+  border-color: var(--ink);
+}
+.field-input.err, .field-input:focus.err { border-color: var(--red); }
+.field-textarea { resize: vertical; min-height: 88px; }
+.field-err { font-size: 11px; color: var(--red); display: none; }
+.has-err .field-err { display: block; }
+.has-err .field-input { border-color: var(--red); }
+
+/* ── Step Actions ────────────────────────────────────────────── */
+.step-actions {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-top: 36px; padding-top: 24px; border-top: 1px solid var(--ink-10);
+}
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 10px 22px; border-radius: var(--r-sm);
+  font-size: 13px; font-weight: 500; font-family: var(--font);
+  cursor: pointer; border: none; transition: all var(--t);
+}
+.btn-ghost {
+  background: transparent; color: var(--ink-60);
+  border: 1.5px solid var(--ink-10);
+}
+.btn-ghost:hover { border-color: var(--ink-30); color: var(--ink); }
+.btn-primary { background: var(--ink); color: #fff; }
+.btn-primary:hover { background: #2a2d38; }
+.btn-primary:disabled { background: var(--ink-10); color: var(--ink-30); cursor: not-allowed; }
+.btn-download { background: var(--accent-light); color: var(--accent); border: 1.5px solid #bfdbfe; }
+.btn-download:hover { background: #dbeafe; }
+
+/* ── Sidebar ─────────────────────────────────────────────────── */
+.sidebar-card {
+  background: var(--white); border: 1.5px solid var(--ink-10);
+  border-radius: var(--r-xl); padding: 20px;
+  box-shadow: var(--shadow);
+}
+.sidebar-section-title {
+  font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink-30); margin-bottom: 8px;
+}
+.base-block {
+  background: var(--ink-10); border-radius: var(--r);
+  padding: 12px 14px; margin-bottom: 14px;
+}
+.base-type { font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 6px; }
+.base-includes { display: flex; flex-direction: column; gap: 2px; }
+.base-include-row { font-size: 11px; color: var(--ink-60); }
+
+.addon-list { display: flex; flex-direction: column; }
+.addon-item {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 5px 0; border-bottom: 1px solid var(--ink-10);
+  font-size: 12px;
+}
+.addon-item:last-child { border-bottom: none; }
+.addon-name { color: var(--ink-60); flex: 1; padding-right: 6px; }
+.addon-price { color: var(--ink); font-weight: 500; font-size: 11px; flex-shrink: 0; }
+.addon-eval  { color: var(--amber); font-weight: 600; font-size: 11px; }
+.sidebar-empty { font-size: 12px; color: var(--ink-30); padding: 6px 0 8px; }
+
+.sidebar-divider { height: 1px; background: var(--ink-10); margin: 14px 0; }
+
+.price-label { font-size: 11px; color: var(--ink-60); margin-bottom: 3px; }
+.price-value {
+  font-size: 26px; font-weight: 800; color: var(--ink);
+  letter-spacing: -1px; font-variant-numeric: tabular-nums;
+}
+.price-range { font-size: 11px; color: var(--ink-30); margin-top: 2px; }
+.price-evaluate {
+  font-size: 14px; font-weight: 600; color: var(--amber);
+  background: var(--amber-light); border-radius: var(--r-sm);
+  padding: 8px 12px; margin-top: 6px; line-height: 1.4;
+}
+
+.duration-label { font-size: 11px; color: var(--ink-60); margin-top: 12px; margin-bottom: 2px; }
+.duration-value { font-size: 13px; font-weight: 600; color: var(--ink); }
+
+.quote-id-chip {
+  margin-top: 12px; padding: 7px 10px;
+  background: var(--ink-10); border-radius: var(--r-sm);
+  font-size: 10px; color: var(--ink-30); letter-spacing: .04em;
+  font-family: var(--mono);
+}
+
+/* ── Final Summary Page ──────────────────────────────────────── */
+.final-card {
+  background: var(--white); border: 1.5px solid var(--ink-10);
+  border-radius: var(--r-xl); padding: 26px; margin-bottom: 20px;
+}
+.final-section { margin-bottom: 22px; }
+.final-section-title {
+  font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink-30); margin-bottom: 10px; padding-bottom: 8px;
+  border-bottom: 1px solid var(--ink-10);
+}
+.final-price-block {
+  background: var(--ink); color: #fff; border-radius: var(--r-lg);
+  padding: 24px; text-align: center; margin-bottom: 20px;
+}
+.final-price-label { font-size: 11px; color: rgba(255,255,255,.45); letter-spacing: .1em; text-transform: uppercase; margin-bottom: 6px; }
+.final-price-main { font-size: 32px; font-weight: 800; letter-spacing: -1.5px; }
+.final-price-range { font-size: 12px; color: rgba(255,255,255,.4); margin-top: 4px; }
+.final-duration { font-size: 13px; color: rgba(255,255,255,.5); margin-top: 8px; }
+.final-evaluate-block {
+  background: var(--amber-light); border: 1px solid #fde68a;
+  border-radius: var(--r-lg); padding: 24px; text-align: center; margin-bottom: 20px;
+}
+.final-evaluate-icon { font-size: 28px; margin-bottom: 8px; }
+.final-evaluate-title { font-size: 18px; font-weight: 700; color: #92400e; margin-bottom: 6px; }
+.final-evaluate-sub { font-size: 13px; color: #a16207; line-height: 1.6; }
+
+.feature-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+.ftag {
+  font-size: 11px; padding: 4px 9px; border-radius: 20px;
+  background: var(--ink-10); color: var(--ink-60); font-weight: 500;
+}
+.ftag.eval { background: var(--amber-light); color: var(--amber); }
+
+.contact-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cs-item { padding: 8px 12px; background: var(--ink-10); border-radius: var(--r-sm); }
+.cs-label { font-size: 10px; color: var(--ink-30); margin-bottom: 2px; }
+.cs-value { font-size: 13px; font-weight: 500; color: var(--ink); }
+
+.quote-banner {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--ink); color: #fff;
+  border-radius: var(--r-lg); padding: 14px 18px; margin-bottom: 18px;
+}
+.qb-id { font-size: 15px; font-weight: 700; letter-spacing: .04em; font-family: var(--mono); }
+.qb-note { font-size: 11px; color: rgba(255,255,255,.4); margin-top: 2px; }
+.qb-date { font-size: 11px; color: rgba(255,255,255,.3); }
+
+/* ── Success ─────────────────────────────────────────────────── */
+.success-screen { display: none; flex-direction: column; align-items: center; text-align: center; padding: 60px 0; }
+.success-screen.show { display: flex; animation: fadeUp .3s var(--ease); }
+.success-icon { font-size: 48px; margin-bottom: 20px; }
+.success-title { font-size: 22px; font-weight: 700; color: var(--ink); margin-bottom: 8px; }
+.success-sub { font-size: 14px; color: var(--ink-60); line-height: 1.6; margin-bottom: 24px; max-width: 400px; }
+.success-qid {
+  font-size: 13px; font-weight: 600; letter-spacing: .05em; font-family: var(--mono);
+  background: var(--ink-10); padding: 10px 20px; border-radius: var(--r); margin-bottom: 28px; color: var(--ink-60);
+}
+.success-btns { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+
+/* ── Toast ───────────────────────────────────────────────────── */
+.toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(16px);
+  background: var(--ink); color: #fff; font-size: 13px;
+  padding: 11px 20px; border-radius: var(--r); white-space: nowrap;
+  opacity: 0; pointer-events: none; transition: all .25s var(--ease); z-index: 999;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ── RWD ─────────────────────────────────────────────────────── */
+@media (max-width: 800px) {
+  .wrap { flex-direction: column-reverse; padding: 24px 16px 60px; }
+  .form-col { padding-right: 0; }
+  .sidebar-col { width: 100%; position: static; }
+  .type-grid { grid-template-columns: 1fr; }
+  .conditions-grid { grid-template-columns: 1fr; }
+  .contact-grid { grid-template-columns: 1fr; }
+  .contact-summary { grid-template-columns: 1fr; }
+}
+
+/* ── Sidebar scrollbar ───────────────────────────────────────── */
+.sidebar-col { max-height: calc(100vh - 100px); overflow-y: auto; }
+.sidebar-col::-webkit-scrollbar { width: 3px; }
+.sidebar-col::-webkit-scrollbar-thumb { background: var(--ink-10); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-logo">
+    <div class="header-logo-mark">W</div>
+    網站開發估價系統
+  </div>
+  <div class="header-note">預估僅供參考 · 正式報價需求訪談後確認</div>
+</header>
+
+<div class="wrap">
+
+  <!-- Form Column -->
+  <div class="form-col">
+    <div class="progress-bar" id="progressBar"></div>
+
+    <!-- Step 1: 專案類型 -->
+    <div data-step="1" class="active">
+      <!-- 單一入口（過渡處理）：客戶不再四選一，按下後底層自動使用 type = ecom。 -->
+      <div id="singleEntry">
+        <div class="step-eyebrow">網站需求書</div>
+        <div class="step-title">建立網站需求書</div>
+        <div class="step-sub">依序確認你的網站需求，系統會同步整理成一份需求書並提供初步預估價格。大約 5–10 分鐘，送出後我會在 1–2 個工作天與你聯繫。</div>
+        <div class="step-actions">
+          <div></div>
+          <button class="btn btn-primary" id="btnStart" onclick="startRequirementBook()">建立網站需求書 →</button>
+        </div>
+      </div>
+
+      <!-- 舊的網站類型四選一（brand / cms / ecom / custom）：完整保留，SINGLE_ENTRY 為 true 時僅隱藏不顯示 -->
+      <div id="legacyTypeSelect" style="display:none">
+      <div class="step-eyebrow">Step 1 · 5</div>
+      <div class="step-title">這個網站是為了什麼？</div>
+      <div class="step-sub">選擇最接近你需求的類型，系統會自動帶入適合的功能項目。</div>
+
+      <div class="type-grid">
+        <div class="type-card" data-type="brand" onclick="selectType(this,'brand')">
+          <div class="type-card-icon">🏢</div>
+          <div class="type-card-name">形象網站</div>
+          <div class="type-card-desc">展示品牌、服務與聯絡資訊。適合公司、工作室、個人品牌。</div>
+          <div class="type-card-price">NT$35,000 – 50,000</div>
+        </div>
+        <div class="type-card" data-type="cms" onclick="selectType(this,'cms')">
+          <div class="type-card-icon">📝</div>
+          <div class="type-card-name">內容管理網站</div>
+          <div class="type-card-desc">具備後台管理，可自行更新文章、消息、SEO 設定。</div>
+          <div class="type-card-price">NT$55,000 – 85,000</div>
+        </div>
+        <div class="type-card" data-type="ecom" onclick="selectType(this,'ecom')">
+          <div class="type-card-icon">🛒</div>
+          <div class="type-card-name">小型電商網站</div>
+          <div class="type-card-desc">商品管理、購物車、基本 Checkout 與訂單管理。第三方正式金流需另行加購。適合 50 種以內商品的品牌。</div>
+          <div class="type-card-price">NT$90,000 – 120,000</div>
+        </div>
+        <div class="type-card type-card-custom" data-type="custom" onclick="selectType(this,'custom')">
+          <div class="type-card-icon">⚙️</div>
+          <div class="type-card-name">客製需求評估</div>
+          <div class="type-card-desc">ERP、CRM、預約系統、B2B 平台或複雜業務流程。</div>
+          <div class="type-card-price">需專案評估</div>
+        </div>
+      </div>
+
+      <div class="step-actions">
+        <div></div>
+        <button class="btn btn-primary" id="btn1" onclick="step1Next()" disabled style="opacity:.35;cursor:not-allowed">下一步 →</button>
+      </div>
+      </div><!-- /legacyTypeSelect -->
+    </div>
+
+    <!-- Step 2: 功能需求 -->
+    <div data-step="2">
+      <div class="step-eyebrow">Step 2 · 5</div>
+      <div class="step-title" id="s2title">需要哪些功能？</div>
+      <div class="step-sub" id="s2sub">已為你帶入建議項目，可依需求調整。點 <strong>?</strong> 查看說明。</div>
+
+      <!-- 客製提示 -->
+      <div class="evaluate-notice" id="customNotice" style="display:none">
+        ⚠️ <strong>客製需求評估</strong>不自動估價。請勾選你大致的需求方向，讓我們更了解你的專案。提交後將由專人與你聯繫。
+      </div>
+
+      <div id="featuresContainer"></div>
+
+      <div class="step-actions">
+        <button class="btn btn-ghost" onclick="prevStep()">← 上一步</button>
+        <button class="btn btn-primary" onclick="nextStep()">下一步 →</button>
+      </div>
+    </div>
+
+    <!-- Step 3: 會員 / 電商細節 -->
+    <div data-step="3">
+      <div class="step-eyebrow">Step 3 · 5</div>
+      <div class="step-title" id="s3title">進階功能</div>
+      <div class="step-sub" id="s3sub">選擇需要的進階功能。這些項目會影響預估費用。</div>
+      <div id="advancedContainer"></div>
+      <div class="step-actions">
+        <button class="btn btn-ghost" onclick="prevStep()">← 上一步</button>
+        <button class="btn btn-primary" onclick="nextStep()">下一步 →</button>
+      </div>
+    </div>
+
+    <!-- Step 4: 開發條件 -->
+    <div data-step="4">
+      <div class="step-eyebrow">Step 4 · 5</div>
+      <div class="step-title" id="s4title">開發條件</div>
+      <div class="step-sub" id="s4sub">這些選項會影響最終費用與時程。</div>
+
+      <div class="conditions-grid" style="margin-bottom:28px">
+        <!-- 公開需求書（Requirement v2）專用：指定上線日期／後續維護意願／固定修改說明。
+             舊的「交件時間／修改次數／專案複雜度／維護方案」（.legacy-cond）完整保留，僅在需求書模式下隱藏。 -->
+        <div class="cond-group req-cond" style="display:none">
+          <div class="cond-label">是否有指定上線日期？</div>
+          <div class="cond-opts" id="cond-targetDate">
+            <div class="cond-opt" data-val="no" onclick="selectProjectInfo('hasTargetDate','no')">沒有</div>
+            <div class="cond-opt" data-val="yes" onclick="selectProjectInfo('hasTargetDate','yes')">有</div>
+          </div>
+          <div id="targetDateWrap" style="display:none;margin-top:8px">
+            <input class="field-input" id="f-targetDate" type="date" oninput="state.projectInfo.targetDate=this.value">
+            <div style="font-size:11px;color:var(--ink-30);margin-top:6px;line-height:1.5">實際開發時程與是否涉及急件安排，將於需求確認後評估。</div>
+          </div>
+        </div>
+        <div class="cond-group req-cond" style="display:none">
+          <div class="cond-label">網站完成後是否希望了解後續維護服務？<span style="font-weight:400;color:var(--ink-30)">（不計入本次開發估價）</span></div>
+          <div class="cond-opts" id="cond-maintInterest">
+            <div class="cond-opt" data-val="no" onclick="selectProjectInfo('maintInterest','no')">不需要</div>
+            <div class="cond-opt" data-val="yes" onclick="selectProjectInfo('maintInterest','yes')">希望了解</div>
+          </div>
+        </div>
+        <div class="cond-group req-cond" style="display:none">
+          <div class="cond-label">修改說明</div>
+          <div style="font-size:12.5px;color:var(--ink-60);line-height:1.6">本方案包含 2 次原確認 Scope 內的小幅修改；超出修改次數或原確認 Scope 的需求，將依實際內容另行評估及報價。</div>
+        </div>
+        <div class="cond-group legacy-cond">
+          <div class="cond-label">交件時間</div>
+          <div class="cond-opts" id="cond-timeline">
+            <div class="cond-opt selected" onclick="selectCond('timeline',this,0)">一般時程<span class="cond-modifier">標準</span></div>
+            <div class="cond-opt" onclick="selectCond('timeline',this,.2)">急件<span class="cond-modifier">+20%</span></div>
+          </div>
+          <div style="font-size:11px;color:var(--ink-30);margin-top:8px;line-height:1.5">急件費獨立計算，會在估價結果中列為單獨一項「急件調整」，不會隱藏在總價裡。</div>
+        </div>
+        <div class="cond-group legacy-cond">
+          <div class="cond-label">修改次數</div>
+          <div class="cond-opts" id="cond-revision">
+            <div class="cond-opt selected" onclick="selectRevisionOpt(this,'standard','2 次內含')">2 次<span class="cond-modifier">內含</span></div>
+            <div class="cond-opt" onclick="selectRevisionOpt(this,'flexible','需要較多修改彈性')">需要較多修改彈性<span class="cond-modifier">另行報價</span></div>
+          </div>
+          <div style="font-size:11px;color:var(--ink-30);margin-top:8px;line-height:1.5">本方案包含 2 次原確認 Scope 內的小幅修改；超出修改次數或原確認 Scope 的需求，將依實際內容另行評估及報價。</div>
+        </div>
+        <div class="cond-group">
+          <div class="cond-label">保固期</div>
+          <div class="cond-opts" id="cond-warranty">
+            <div class="cond-opt selected" onclick="selectCondFlat('warranty',this,0,'30 天內含保固')">30 天<span class="cond-modifier">內含</span></div>
+            <div class="cond-opt" onclick="selectCondFlat('warranty',this,5000,'3 個月保固（+NT$5,000）')">3 個月<span class="cond-modifier">+NT$5,000</span></div>
+            <div class="cond-opt" onclick="selectCondFlat('warranty',this,10000,'6 個月保固（+NT$10,000）')">6 個月<span class="cond-modifier">+NT$10,000</span></div>
+          </div>
+          <div style="font-size:11px;color:var(--ink-30);margin-top:8px;line-height:1.5">
+            Bug 定義：原本需求規格內、已完成之功能發生錯誤。僅含此類 Bug 免費修正。以下不屬於 Bug，需另外報價：新增功能、變更原本需求、新增頁面、第三方 API 改版、客戶自行操作造成之資料問題。
+          </div>
+        </div>
+        <div class="cond-group legacy-cond">
+          <div class="cond-label">專案複雜度</div>
+          <div class="cond-opts" id="cond-complexity">
+            <div class="cond-opt selected" onclick="selectCond('complexity',this,0)">標準<span class="cond-modifier">無</span></div>
+            <div class="cond-opt" onclick="selectCond('complexity',this,.10)">中度客製<span class="cond-modifier">最高 +NT$15,000</span></div>
+            <div class="cond-opt" onclick="selectCond('complexity',this,.20)">高度客製<span class="cond-modifier">最高 +NT$30,000</span></div>
+          </div>
+          <div style="font-size:11px;color:var(--ink-30);margin-top:8px;line-height:1.5">複雜度調整費僅依「基礎方案價格」計算（不會再乘上已選加購功能的價值），並分別設有 NT$15,000／NT$30,000 上限，會在估價結果中獨立列出。</div>
+        </div>
+        <div class="cond-group legacy-cond">
+          <div class="cond-label">維護方案<span style="font-weight:400;color:var(--ink-30)">（選配，不列入開發總價）</span></div>
+          <div class="cond-opts" id="cond-maint">
+            <div class="cond-opt selected" onclick="selectMaint(this,'none','不需要')">不需要<span class="cond-modifier">NT$0</span></div>
+            <div class="cond-opt" onclick="selectMaint(this,'hourly','單次維護（按時計費）')">單次維護<span class="cond-modifier">NT$800–1,500/hr</span></div>
+            <div class="cond-opt" onclick="selectMaint(this,'basic','基本月維護')">基本月維護<span class="cond-modifier">NT$2,000–5,000/月</span></div>
+            <div class="cond-opt" onclick="selectMaint(this,'advanced','進階維護')">進階維護<span class="cond-modifier">NT$5,000–10,000+/月</span></div>
+          </div>
+          <div style="font-size:11px;color:var(--ink-30);margin-top:8px;line-height:1.5">含安全檢查、備份確認、基本技術支援。不含大量內容修改或新增功能，且不會自動計入本次開發總價，僅供選配參考。</div>
+        </div>
+      </div>
+
+      <!-- 聯絡資訊 -->
+      <div style="margin-bottom:6px;font-size:15px;font-weight:600;color:var(--ink)">你的聯絡資訊</div>
+      <div style="font-size:12px;color:var(--ink-60);margin-bottom:18px">送出後我會在 1–2 個工作天與你聯繫。</div>
+      <div class="contact-grid">
+        <div class="field" id="fg-name">
+          <label class="field-label">姓名<span class="req">*</span></label>
+          <input class="field-input" id="f-name" placeholder="王小明">
+          <div class="field-err">請填寫姓名</div>
+        </div>
+        <div class="field">
+          <label class="field-label">公司 / 品牌</label>
+          <input class="field-input" id="f-company" placeholder="ABC 有限公司">
+        </div>
+        <div class="field" id="fg-email">
+          <label class="field-label">Email<span class="req">*</span></label>
+          <input class="field-input" id="f-email" type="email" placeholder="hello@example.com">
+          <div class="field-err">請填寫正確的 Email</div>
+        </div>
+        <div class="field">
+          <label class="field-label">電話</label>
+          <input class="field-input" id="f-phone" type="tel" placeholder="0912-345-678">
+        </div>
+        <div class="field">
+          <label class="field-label">LINE ID</label>
+          <input class="field-input" id="f-line" placeholder="@yourline">
+        </div>
+        <div class="field">
+          <label class="field-label">預算區間</label>
+          <select class="field-select" id="f-budget">
+            <option value="">不確定</option>
+            <option value="3–5 萬">NT$3 萬 – 5 萬</option>
+            <option value="5–10 萬">NT$5 萬 – 10 萬</option>
+            <option value="10–20 萬">NT$10 萬 – 20 萬</option>
+            <option value="20 萬以上">NT$20 萬以上</option>
+          </select>
+        </div>
+        <div class="field" id="fg-launch">
+          <label class="field-label">預計上線時間</label>
+          <input class="field-input" id="f-launch" placeholder="3 個月內、2026 Q3…">
+        </div>
+        <div class="field full">
+          <label class="field-label">補充說明</label>
+          <textarea class="field-textarea" id="f-notes" placeholder="有任何特殊需求、參考網站、設計風格偏好，歡迎在這裡說明。"></textarea>
+        </div>
+      </div>
+
+      <div class="step-actions">
+        <button class="btn btn-ghost" onclick="prevStep()">← 上一步</button>
+        <button class="btn btn-primary" onclick="goToSummary()">查看估價結果 →</button>
+      </div>
+    </div>
+
+    <!-- Step 5: 摘要 -->
+    <div data-step="5">
+      <div class="step-eyebrow" id="s5eyebrow">估價摘要</div>
+      <div class="step-title">你的需求估算結果</div>
+      <div class="step-sub">以下為系統自動估算，正式報價仍需進一步需求訪談。</div>
+      <div id="summaryContent"></div>
+      <div class="step-actions">
+        <button class="btn btn-ghost" onclick="prevStep()">← 返回修改</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-download" onclick="downloadHTML()">⬇ 下載需求書</button>
+          <button class="btn btn-primary" id="submitBtn" onclick="submitQuote()">送出需求 →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Success -->
+    <div class="success-screen" id="successScreen">
+      <div class="success-icon">✅</div>
+      <div class="success-title">需求已送出！</div>
+      <div class="success-sub">感謝你的填寫。我們會在 1–2 個工作天內與你聯繫，進行正式需求訪談與確認。</div>
+      <div class="success-qid" id="successQid"></div>
+      <div class="success-btns">
+        <button class="btn btn-download" onclick="downloadHTML()">⬇ 下載需求書</button>
+        <button class="btn btn-ghost" onclick="location.reload()">重新填寫</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <aside class="sidebar-col">
+    <div class="sidebar-card">
+      <div class="sidebar-section-title">目前需求</div>
+      <div id="sidebarBase" style="display:none">
+        <div class="base-block">
+          <div class="base-type" id="sidebarTypeName">—</div>
+          <div class="base-includes">
+            <div class="base-include-row">✓ RWD 響應式</div>
+            <div class="base-include-row">✓ 基礎 SEO</div>
+            <div class="base-include-row">✓ SSL 憑證</div>
+            <div class="base-include-row">✓ 基本部署 &amp; 基本 DNS 指向</div>
+          </div>
+        </div>
+      </div>
+      <div class="sidebar-section-title" id="addonLabel" style="display:none">加選功能</div>
+      <div class="addon-list" id="addonList">
+        <div class="sidebar-empty">尚未選擇任何功能</div>
+      </div>
+
+      <div class="sidebar-divider"></div>
+
+      <div id="priceBlock">
+        <div class="price-label">預估總價</div>
+        <div class="price-value" id="priceValue">NT$0</div>
+        <div class="price-range" id="priceRange">開始填寫後顯示預估</div>
+      </div>
+
+      <div class="duration-label">預估工期</div>
+      <div class="duration-value" id="durationValue">—</div>
+
+      <div id="sidebarMaintNote" style="display:none;margin-top:10px;font-size:11px;color:var(--ink-60);background:var(--ink-10);border-radius:8px;padding:8px 10px;line-height:1.5"></div>
+
+      <div style="margin-top:10px;font-size:10.5px;color:var(--ink-30);line-height:1.5">
+        以上不含第三方服務費（網域、主機、資料庫、金流手續費、Email、簡訊等），由客戶依實際使用方案自行負擔。
+      </div>
+
+      <div class="quote-id-chip" id="quoteIdChip"></div>
+    </div>
+  </aside>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════
+//  EMAILJS CONFIG
+// ══════════════════════════════════════════════════
+const EJS_SERVICE  = 'service_96z6415';
+const EJS_TEMPLATE = 'template_hmic2ff';
+const EJS_KEY      = '6ErXVriFfrV0WgH1C';
+
+// ══════════════════════════════════════════════════
+//  DATA
+// ══════════════════════════════════════════════════
+
+// TYPE_CONFIG／FEATURES／itemHigh() 定義在 pricing-data.js（內容未變，只是搬移），
+// 讓後台「需求審核」讀取同一份價格資料，避免出現第二套價格表。
+
+// Step 2 每種類型的分組顯示設定
+const TYPE_SECTIONS = {
+  brand: [
+    { label:'頁面',   key:'pages',        show: true },
+    { label:'串接',   key:'integrations', show: true },
+    { label:'服務',   key:'services',     show: true },
+    { label:'需評估',       key:'evaluate',     show: true },
+  ],
+  cms: [
+    { label:'頁面',   key:'pages',        show: true },
+    { label:'後台管理',key:'cms',         show: true },
+    { label:'串接',   key:'integrations', show: true },
+    { label:'服務',   key:'services',     show: true },
+    { label:'需評估',       key:'evaluate',     show: true },
+  ],
+  ecom: [
+    { label:'電商功能',key:'ecom',        show: true },
+    { label:'頁面',   key:'pages',        show: true },
+    { label:'會員',   key:'member',       show: true },
+    { label:'後台管理',key:'cms',         show: true },
+    { label:'串接',   key:'integrations', show: true },
+    { label:'服務',   key:'services',     show: true },
+    { label:'需評估',       key:'evaluate',     show: true },
+  ],
+  custom: [
+    { label:'頁面',     key:'pages',        show: true },
+    { label:'會員',     key:'member',       show: true },
+    { label:'後台管理', key:'cms',          show: true },
+    { label:'串接',     key:'integrations', show: true },
+    { label:'服務',     key:'services',     show: true },
+    { label:'需評估',         key:'evaluate',     show: true },
+  ],
+};
+
+const TYPE_PRESETS = {
+  brand:  { pages:['home','about','contact'], cms:[], member:[], ecom:[], integrations:[], services:[], evaluate:[] },
+  cms:    { pages:['home','about','contact'], cms:['admin','content-mgmt'], member:[], ecom:[], integrations:[], services:[], evaluate:[] },
+  ecom:   { pages:['home','contact'], cms:['admin','product-mgmt','order-mgmt'], member:['register','profile','orders'], ecom:['ecom-base'], integrations:[], services:[], evaluate:[] },
+  custom: { pages:['home','about','contact'], cms:['admin'], member:[], ecom:[], integrations:[], services:[], evaluate:[] },
+};
+
+// ══════════════════════════════════════════════════
+//  STATE
+// ══════════════════════════════════════════════════
+const state = {
+  step: 1,
+  type: null,
+  selected: { pages:new Set(), member:new Set(), ecom:new Set(), cms:new Set(), integrations:new Set(), services:new Set(), evaluate:new Set() },
+  conds: { timeline:0, warrantyFlat:0, warrantyLabel:'30 天內含保固', complexity:0, revisionKey:'standard', revisionLabel:'2 次內含', maintKey:'none', maintLabel:'不需要' },
+  contact: {},
+  quoteId: genQid(),
+  // Requirement + Estimate v1（僅 ecom 使用）
+  req: { answers: {} },        // 客戶對需求書的回答（key → true / 'value' / ['v1','v2'] / '文字'）
+  reqOpen: new Set(),          // 目前展開的需求區塊（純 UI 狀態）
+  reqEval: null,               // NicocoRequirements.evaluate() 的結果
+  reqDerived: new Set(),       // 由需求內容帶入的既有 pricing key（'group:id'）
+  // Requirement v2：Step 4 專案資訊（不影響價格；急件／複雜度改由管理者於正式報價階段判斷）
+  projectInfo: { hasTargetDate: null, targetDate: '', maintInterest: null },
+};
+
+// Quote ID：Q-日期-6 碼隨機字元（32 種字元 → 約 30 bits／天），使用 crypto.getRandomValues()。
+// Quote ID 只是識別碼，不是存取憑證；公開報價的存取能力只來自 clientToken。
+function genQid() {
+  // 字元表放在函式內：state 初始化時就會呼叫 genQid()，不能依賴後面才宣告的 const
+  const QID_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // 32 個字元，去掉易混淆的 I、O、0、1
+  const d = new Date();
+  const ds = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+  const bytes = new Uint8Array(6);
+  crypto.getRandomValues(bytes);
+  const suffix = Array.from(bytes, b => QID_ALPHABET[b & 31]).join('');   // 256 是 32 的倍數，取低 5 bits 無偏差
+  return `Q-${ds}-${suffix}`;
+}
+
+// ══════════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', () => {
+  renderProgress();
+  document.getElementById('quoteIdChip').textContent = state.quoteId;
+  updateSidebar();
+});
+
+// ══════════════════════════════════════════════════
+//  PROGRESS BAR
+// ══════════════════════════════════════════════════
+const STEP_LABELS = ['專案類型','功能需求','進階功能','條件 & 聯絡','估價摘要'];
+// ecom：Step 2 為電商需求確認（Requirement），Step 3 為其他功能／加購
+const STEP_LABELS_ECOM = ['專案類型','網站需求確認','其他需求與附加服務','專案資訊 & 聯絡','需求與估價摘要'];
+
+function renderProgress() {
+  const bar = document.getElementById('progressBar');
+  bar.innerHTML = '';
+
+  // brand/cms 不顯示 step 3，剩下 4 個步驟
+  const skip3 = shouldSkipStep3 && shouldSkipStep3() ||
+                (state.type === 'brand' || state.type === 'cms');
+  const visibleSteps = skip3 ? [1,2,4,5] : [1,2,3,4,5];
+
+  visibleSteps.forEach((stepNum, idx) => {
+    const isDone   = stepNum < state.step && !(skip3 && stepNum === 3);
+    const isActive = stepNum === state.step;
+
+    const s = document.createElement('div');
+    s.className = 'prog-step' + (isActive ? ' active' : isDone ? ' done' : '');
+    s.innerHTML = `
+      <div class="prog-dot">${isDone ? '✓' : idx + 1}</div>
+      <div class="prog-label">${(stepNum === 1 && singleEntryActive()) ? '開始' : (isReqType() ? STEP_LABELS_ECOM : STEP_LABELS)[stepNum - 1]}</div>`;
+    if (isDone) s.onclick = () => goTo(stepNum);
+    bar.appendChild(s);
+    // 手機版進度列用：「步驟 X / N・目前步驟名稱」
+    if (isActive) {
+      const label = (stepNum === 1 && singleEntryActive()) ? '開始' : (isReqType() ? STEP_LABELS_ECOM : STEP_LABELS)[stepNum - 1];
+      bar.dataset.current = `步驟 ${idx + 1} / ${visibleSteps.length}・${label}`;
+    }
+  });
+}
+
+// ══════════════════════════════════════════════════
+//  NAVIGATION
+// ══════════════════════════════════════════════════
+function goTo(n) {
+  document.querySelectorAll('[data-step]').forEach(el => el.classList.remove('active'));
+  const el = document.querySelector(`[data-step="${n}"]`);
+  if (el) el.classList.add('active');
+  state.step = n;
+  renderProgress();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function shouldSkipStep3() {
+  return state.type === 'brand' || state.type === 'cms';
+}
+
+function nextStep() {
+  if (state.step === 2 && shouldSkipStep3()) { goTo(4); return; }
+  goTo(Math.min(state.step + 1, 5));
+}
+
+function prevStep() {
+  if (state.step === 4 && shouldSkipStep3()) { goTo(2); return; }
+  goTo(Math.max(state.step - 1, 1));
+}
+
+// ══════════════════════════════════════════════════
+//  STEP 1 – TYPE
+// ══════════════════════════════════════════════════
+// ── 單一入口（過渡處理）──────────────────────────────
+// true ：公開入口只顯示「建立網站需求書」，底層自動使用 type = ecom，前台不顯示方案類型名稱。
+// false：還原為原本的四選一入口（brand / cms / ecom / custom 流程皆完整保留）。
+const SINGLE_ENTRY = true;
+const SINGLE_ENTRY_TYPE = 'ecom';
+// 單一入口模式是否生效：需求定義檔載入失敗時自動退回四選一，避免客戶卡在無法填寫的入口
+function singleEntryActive() { return SINGLE_ENTRY && !!window.NicocoRequirements; }
+
+window.addEventListener('DOMContentLoaded', () => {
+  const on = singleEntryActive();
+  document.getElementById('singleEntry').style.display = on ? '' : 'none';
+  document.getElementById('legacyTypeSelect').style.display = on ? 'none' : '';
+  if (!on) document.getElementById('priceRange').textContent = '請先選擇專案類型';
+});
+
+// 入口按鈕：type = ecom 在這裡自動設定（沿用既有 selectType，不另寫一套初始化）
+function startRequirementBook() {
+  // 從後面步驟回到入口再按一次時，不重置已填寫的內容
+  if (state.type !== SINGLE_ENTRY_TYPE) {
+    const card = document.querySelector(`.type-card[data-type="${SINGLE_ENTRY_TYPE}"]`);
+    selectType(card, SINGLE_ENTRY_TYPE);
+  }
+  nextStep();
+}
+
+// 前台顯示用的方案名稱：單一入口模式下不顯示底層類型名稱（Firestore 的 projectType 仍照舊寫入）
+function clientTypeName(cfg) {
+  if (!cfg) return '';
+  return singleEntryActive() ? '網站基礎建置' : cfg.name;
+}
+// 功能說明文字中的方案名稱：只在顯示時替換，不修改 FEATURES 本身
+function clientDesc(desc) {
+  if (!singleEntryActive()) return desc;
+  return String(desc)
+    .replace('選擇「小型電商網站」時，', '本方案中，')
+    .replace(/小型電商方案/g, '基礎方案');
+}
+
+function step1Next() {
+  if (!state.type) { showToast('請先選擇一種專案類型'); return; }
+  nextStep();
+}
+
+function selectType(el, type) {
+  document.querySelectorAll('.type-card').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+  state.type = type;
+
+  // Enable button
+  const btn = document.getElementById('btn1');
+  btn.disabled = false; btn.style.opacity = '1'; btn.style.cursor = 'pointer';
+
+  // Apply preset
+  const preset = TYPE_PRESETS[type];
+  Object.keys(state.selected).forEach(k => state.selected[k].clear());
+  Object.keys(preset).forEach(k => {
+    if (state.selected[k]) preset[k].forEach(id => state.selected[k].add(id));
+  });
+
+  // Requirement 狀態：切換類型時一律重置（只有 ecom 會使用）
+  state.req = { answers: {} };
+  state.reqOpen = new Set();
+  state.projectInfo = { hasTargetDate: null, targetDate: '', maintInterest: null };
+  recomputeReq();
+  applyStepTexts();
+
+  // Render step 2
+  renderFeatures();
+  renderAdvanced();
+  updateSidebar();
+}
+
+// 依類型切換 Step 2／3／5 的標題文字（非 ecom 維持原本文案）
+function applyStepTexts() {
+  const ecom = isReqType();
+  const set = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
+  set('s2title', ecom ? '網站需求確認' : '需要哪些功能？');
+  set('s2sub', ecom
+    ? '你的方案已包含以下六大系統。請點開各區塊，確認是否還有額外或特殊需求；沒有的話可以直接下一步。'
+    : '已為你帶入建議項目，可依需求調整。點 <strong>?</strong> 查看說明。');
+  set('s3title', ecom ? '其他需求與附加服務' : '進階功能');
+  set('s3sub', ecom
+    ? '上一步已確認主要網站功能。這裡只列出其他可能需要的內容、行銷、設計與顧問服務，沒有需要可以直接下一步。點 <strong>?</strong> 查看說明。'
+    : '選擇需要的進階功能。這些項目會影響預估費用。');
+  set('s4title', ecom ? '專案資訊與聯絡方式' : '開發條件');
+  set('s4sub', ecom ? '最後確認幾項專案資訊，並留下聯絡方式。' : '這些選項會影響最終費用與時程。');
+  set('s5eyebrow', ecom ? '需求與初步估價摘要' : '估價摘要');
+  // Step 4：需求書模式隱藏「急件／修改次數／複雜度／維護方案」的客戶選擇（底層 state.conds 維持預設值，
+  // 即不加急件費、不加複雜度調整）；改顯示指定上線日期／維護意願／固定修改說明。
+  document.querySelectorAll('.legacy-cond').forEach(el => { el.style.display = ecom ? 'none' : ''; });
+  document.querySelectorAll('.req-cond').forEach(el => { el.style.display = ecom ? '' : 'none'; });
+  const fgLaunch = document.getElementById('fg-launch');
+  if (fgLaunch) fgLaunch.style.display = ecom ? 'none' : '';   // 由「指定上線日期」取代
+}
+
+// Step 4 專案資訊（需求書模式）：只記錄回答，不影響價格
+function selectProjectInfo(field, val) {
+  state.projectInfo[field] = val;
+  const groupId = field === 'hasTargetDate' ? 'cond-targetDate' : 'cond-maintInterest';
+  document.querySelectorAll(`#${groupId} .cond-opt`).forEach(o => o.classList.toggle('selected', o.dataset.val === val));
+  if (field === 'hasTargetDate') {
+    document.getElementById('targetDateWrap').style.display = val === 'yes' ? 'block' : 'none';
+  }
+}
+// 給 Snapshot／摘要用的專案資訊
+function buildProjectInfo() {
+  const pi = state.projectInfo;
+  const yn = v => v === 'yes' ? true : v === 'no' ? false : null;
+  return {
+    hasTargetLaunchDate: yn(pi.hasTargetDate),
+    targetLaunchDate: pi.hasTargetDate === 'yes' ? (pi.targetDate || '') : '',
+    interestedInMaintenance: yn(pi.maintInterest),
+    warrantyLabel: state.conds.warrantyLabel || '',
+    budget: (state.contact && state.contact.budget) || document.getElementById('f-budget').value || '',
+    revisionPolicy: REQ_REVISION_TEXT,
+  };
+}
+const REQ_REVISION_TEXT = '本方案包含 2 次原確認 Scope 內的小幅修改；超出修改次數或原確認 Scope 的需求，將依實際內容另行評估及報價。';
+function maintInterestLabel() {
+  const v = state.projectInfo.maintInterest;
+  return v === 'yes' ? '希望了解後續維護服務' : v === 'no' ? '不需要' : '未回答';
+}
+
+// ── 公開需求書 Step 3「其他需求與附加服務」可見項目 ──
+// 只是「哪些既有 FEATURES 顯示給客戶」的清單；FEATURES／價格／Scope 對應完全不動。
+// 未列在這裡的項目只是不顯示：Step 2 已涵蓋的核心功能由需求內容帶入；
+// 純技術項目（Firebase 進階、進階正式環境、主機代管等）改由管理者於正式報價階段判斷。
+// 每個項目：['group','id'] ＝ 顯示既有 FEATURES 卡片；{ req:'extra.xxx' } ＝ 顯示需求定義中的需求題。
+const PUBLIC_STEP3_SECTIONS = [
+  { label: '網站內容／功能', items: [['pages','about'],['pages','faq'],{ req:'extra.articles' },{ req:'extra.multilang' },['ecom','coupon'],['integrations','maps'],['integrations','line-notify']] },
+  { label: '網站曝光與客戶聯繫', items: [['integrations','newsletter'],{ req:'extra.seo' }] },
+  { label: '設計／內容服務', items: [['services','ui-design'],['services','logo'],['services','copywriting'],['evaluate','photography']] },
+  { label: '交付／教學',     items: [['services','training'],['services','manual']] },
+  { label: '特殊需求（需另行評估，不計入自動估價）', items: [['evaluate','erp'],['evaluate','crm'],['evaluate','pos'],['evaluate','b2b'],['evaluate','booking'],['evaluate','ai'],['evaluate','payment-adv']] },
+  { label: '外部系統／服務', items: [{ req:'extra.externalIntegration' }] },
+  { label: '其他', items: [{ req:'extra.other' }] },
+];
+
+// ── 公開需求書的白話名稱與說明（只影響新客戶看到的文字）──
+// FEATURES 的 id／name／price／desc 完全不動；Firestore 的 selectedItems 等仍寫入 FEATURES 原名
+// （原名是後台 Scope 對應的 key）。
+const PUBLIC_FEATURE_COPY = {
+  'services/hosting':   { name: '主機／雲端環境規劃與初始設定' },
+  'evaluate/api-3rd':   { name: '串接其他外部系統或服務' },
+  // 由需求題帶入的項目（不顯示為卡片；側欄／摘要用白話名稱）
+  'pages/blog':         { name: '文章／最新消息（建置時建立內容）' },
+  'cms/content-mgmt':   { name: '文章／最新消息（可自行後台管理）' },
+  'pages/multilang':    { name: '多語言（固定頁面）' },
+  'evaluate/multilang-full': { name: '多語言（含商品、文章等後台內容）' },
+  'pages/seo-adv':      { name: '網站端進階 SEO 設定' },
+  'services/seo-consult': { name: 'SEO 分析與優化建議' },
+  'pages/about':        { name: '品牌／公司介紹頁面', desc: '介紹品牌故事、公司、團隊或服務理念。' },
+  'pages/faq':          { name: '常見問題頁面', desc: '整理客戶常問的問題，例如付款、配送、退換貨或服務方式。' },
+  'ecom/coupon':        { name: '優惠券／折扣活動', desc: '希望可以建立折扣碼、滿額折扣、限時優惠等活動。' },
+  'integrations/maps': { name: '網站顯示店家／公司位置地圖', desc: '在網站頁面中顯示 Google 地圖與店家／公司位置。不包含地址自動完成、地圖搜尋或多店據點系統。' },
+  'integrations/line-notify': { name: '有新訂單時通知店家 LINE', desc: '網站產生新訂單後，透過 LINE 官方提供的 Messaging API，將基本訂單通知發送給指定管理者或群組，方便即時確認訂單。<br><span style="color:var(--ink-30)">LINE 官方帳號方案、訊息費及其他第三方平台費用不包含於網站開發費中；實際使用方式仍須依 LINE 平台當時提供的服務與帳號條件確認。多群組分流、依訂單狀態發送不同通知、顧客端通知、LINE Bot 等進階需求另行評估及報價。</span>' },
+  'integrations/newsletter': { name: '電子報／訂閱名單', desc: '讓訪客留下 Email 訂閱網站消息，並可用於寄送新品、活動或公告。基本包含訂閱、退訂、基本名單與基本發送功能；複雜分眾、行銷自動化、A/B 測試等另行評估。實際寄送方式與第三方服務費依使用的平台及寄送量而定，由客戶負擔。' },
+  'services/ui-design': { name: '高度客製的網站視覺／操作設計', desc: '一般網站介面與 RWD 設計已包含於基礎建置；如果希望另外製作完整設計稿、高度品牌化的視覺、特殊互動或較深入的操作體驗規劃，可選擇此項。' },
+  'services/logo':      { name: 'LOGO／品牌識別設計', desc: '如果目前沒有 LOGO，或希望重新設計品牌識別。' },
+  'services/copywriting': { name: '網站文字／文案協助', desc: '協助撰寫品牌介紹、頁面文字或其他網站文案。頁面數、內容類型與範圍會在正式報價時確認；大量商品描述、SEO 長文或專業產業內容另行評估。' },
+  'evaluate/photography': { name: '商品／品牌照片拍攝', desc: '需要另外拍攝商品照片或品牌形象照片。費用會依商品數量、拍攝地點與方式、成品張數、修圖等條件另行評估，不列入自動估價。' },
+  'services/training': { name: '後台操作教學', desc: '網站完成後，提供一次基本後台操作教學（原則約 60–90 分鐘），教你如何使用本專案提供的後台功能，例如管理商品、訂單、文章等。額外場次、現場教學或不同人員重複培訓另行報價。' },
+  'services/manual': { name: '後台操作手冊', desc: '提供本專案客製後台主要功能的基本圖文操作說明，方便日後查閱。不包含完整公司 SOP 或第三方平台的完整教學文件。' },
+  'evaluate/erp':       { name: '與公司現有的庫存／訂單／營運系統連動（ERP）', desc: '如果公司目前已有庫存、採購、訂單、財務或其他內部管理系統，希望網站資料能與它同步或交換資料，請選擇此項。' },
+  'evaluate/crm':       { name: '管理或串接客戶資料與互動紀錄（CRM）', desc: '如果希望集中管理客戶資料、購買紀錄、聯絡紀錄或後續追蹤，或需要與公司現有的客戶管理系統串接，請選擇此項。' },
+  'evaluate/pos':       { name: '與實體門市的結帳／庫存系統連動（POS）', desc: '如果有實體門市，希望網站與門市的商品、庫存、訂單或結帳系統互相連動，請選擇此項。' },
+  'evaluate/b2b':       { name: '企業／批發客戶專屬功能（B2B）', desc: '如果企業客戶、經銷商或批發客戶需要不同價格、最低訂購量、詢價／報價或特殊下單流程，請選擇此項。' },
+  'evaluate/booking':   { name: '讓客戶在線上預約日期、時間或服務', desc: '如果希望客戶可以在網站選擇服務、日期、時段、人員或其他資源並建立預約，請選擇此項。' },
+  'evaluate/ai':        { name: '網站需要 AI 功能', desc: '例如 AI 客服、智慧推薦、內容生成或其他 AI 應用。實際功能、技術方式及第三方服務費需依需求另外評估。' },
+  'evaluate/payment-adv': { name: '需要特殊付款方式', desc: '如果除了目前需求書中的一般付款方式外，還需要分期、訂閱制、特殊付款流程或其他金流方式，請選擇此項，實際串接方式另行評估。' },
+};
+function pubCopy(group, id) { return isReqType() ? PUBLIC_FEATURE_COPY[group + '/' + id] : null; }
+// 以 FEATURES 原名查出公開名稱（側欄／摘要／下載需求書顯示用）；非需求書模式或沒有對應時原樣回傳
+function pubName(name) {
+  if (!isReqType()) return name;
+  for (const g of Object.keys(FEATURES)) {
+    const item = FEATURES[g].find(i => i.name === name);
+    if (item) { const c = PUBLIC_FEATURE_COPY[g + '/' + item.id]; return c ? c.name : name; }
+  }
+  return name;
+}
+function isPublicStep3Item(group, id) {
+  return PUBLIC_STEP3_SECTIONS.some(sec => sec.items.some(it => Array.isArray(it) && it[0] === group && it[1] === id));
+}
+
+// ══════════════════════════════════════════════════
+//  STEP 2 – FEATURES
+// ══════════════════════════════════════════════════
+function renderFeatures() {
+  const container = document.getElementById('featuresContainer');
+  const notice = document.getElementById('customNotice');
+
+  // Custom notice
+  notice.style.display = state.type === 'custom' ? 'block' : 'none';
+
+  // ecom：Step 2 改為電商需求確認（Requirement），功能清單整體移到 Step 3
+  if (isReqType()) { renderRequirements(); return; }
+
+  const sections = TYPE_SECTIONS[state.type] || [];
+  let html = '';
+
+  sections.forEach(sec => {
+    const items = FEATURES[sec.key];
+    if (!items || !items.length) return;
+
+    // For non-ecom types, hide the ecom section in features; it shows in advanced
+    if (sec.key === 'ecom' && state.type !== 'ecom') return;
+    if (sec.key === 'member' && state.type !== 'ecom' && state.type !== 'custom') return;
+    // Advanced items (ecom, member) shown in step 3 for ecom type
+    if (state.type === 'ecom' && (sec.key === 'ecom' || sec.key === 'member')) return;
+
+    html += renderSection(sec.label, sec.key, items);
+  });
+
+  container.innerHTML = html;
+}
+
+function renderAdvanced() {
+  const container = document.getElementById('advancedContainer');
+  if (isReqType()) {
+    // 需求書模式：Step 3 只顯示 Step 2 未涵蓋、且客戶能自行決定的項目（PUBLIC_STEP3_SECTIONS）。
+    // 仍然沿用既有 renderSection／toggleFeature／calcPrice，計價方式完全不變。
+    let html = '';
+    PUBLIC_STEP3_SECTIONS.forEach(sec => {
+      html += `<div class="pub-sec"><div class="feature-group-title">${sec.label}</div>`;
+      // 依 FEATURES 群組分段呼叫既有 renderSection（label 留空＝不重複印標題）
+      let run = null;
+      const flush = () => { if (run) html += renderSection('', run.group, run.items); run = null; };
+      sec.items.forEach(it => {
+        if (!Array.isArray(it)) {            // 需求題
+          flush();
+          const node = NicocoRequirements.EXTRA.items.find(n => n.key === it.req);
+          if (node) html += reqRenderNodes([node]);
+          return;
+        }
+        const [g, id] = it;
+        const item = (FEATURES[g] || []).find(i => i.id === id);
+        if (!item) return;
+        if (!run || run.group !== g) { flush(); run = { group: g, items: [] }; }
+        run.items.push(item);
+      });
+      flush();
+      html += `</div>`;
+    });
+    container.innerHTML = html;
+  } else if (state.type === 'ecom') {
+    // 後備：需求定義檔載入失敗時，維持改版前的 ecom Step 3
+    let html = renderSection('電商功能', 'ecom', FEATURES.ecom);
+    html += renderSection('會員功能', 'member', FEATURES.member);
+    container.innerHTML = html;
+  } else if (state.type === 'custom') {
+    let html = renderSection('會員功能', 'member', FEATURES.member);
+    html += renderSection('電商功能（若需要）', 'ecom', FEATURES.ecom);
+    container.innerHTML = html;
+  } else {
+    container.innerHTML = `<div style="color:var(--ink-60);font-size:14px;padding:20px 0">你的專案類型不需要此步驟的設定，直接點「下一步」繼續。</div>`;
+  }
+}
+
+function renderSection(label, group, items) {
+  const isEval = items[0] && items[0].evaluate;
+  let html = `<div class="feature-group">`;
+  if (label) html += `<div class="feature-group-title">${label}${isEval ? ' — 以下項目需要專案評估，不計入自動估價' : ''}</div>`;
+  html += `<div class="feature-list">`;
+  items.forEach(item => {
+    const sel = isSelected(group, item.id);
+    const evalItem = item.evaluate;
+    const included = isIncluded(group, item.id);
+    const lockedInc = isLockedIncluded(group, item.id);   // ecom 方案已包含 → 不可取消
+    const derived = isReqDerived(group, item.id);         // 由需求內容帶入 → 需回需求確認調整
+    const lockBadge = lockedInc ? '<span class="badge badge-inc">方案已包含</span>'
+                    : derived   ? '<span class="badge badge-derived">由需求內容帶入</span>' : '';
+    const hiPrice = item.priceHigh || (item.isModule ? Math.round(item.price * 1.55) : null);
+    const priceStr = item.free    ? '已含於建置費' :
+                     evalItem     ? '需評估' :
+                     included     ? '方案包含' :
+                     hiPrice      ? `${(item.price/1000).toFixed(0)}k–${(hiPrice/1000).toFixed(0)}k` :
+                     item.price > 0 ? `+${(item.price/1000).toFixed(0)}k 起` : '';
+    const priceClass = item.free ? 'free' :
+                       evalItem  ? 'evaluate' :
+                       included  ? 'free' : '';  // 同樣用綠色表示「不計費」
+    html += `
+      <div class="feature-item${sel?' selected':''}${evalItem?' evaluate':''}${(lockedInc||derived)?' locked':''}" data-group="${group}" data-id="${item.id}">
+        <div class="feature-row" onclick="toggleFeature('${group}','${item.id}',event)">
+          <div class="feature-check"></div>
+          <div class="feature-name-wrap">
+            <span class="feature-name">${(pubCopy(group, item.id) || item).name}</span>
+            ${(isReqType() && item.badge === 'must' && !included) ? '' : `<span class="badge badge-${item.badge}">${badgeLabel(item.badge)}</span>`}${lockBadge}
+          </div>
+          <span class="feature-price ${priceClass}">${priceStr}</span>
+          <div class="info-btn" onclick="toggleDesc('${group}-${item.id}',event)">?</div>
+        </div>
+        <div class="feature-desc" id="desc-${group}-${item.id}">${pubCopy(group, item.id) ? pubCopy(group, item.id).desc : clientDesc(item.desc)}</div>
+      </div>`;
+  });
+  html += `</div></div>`;
+  return html;
+}
+
+function badgeLabel(b) {
+  return { must:'必要', rec:'建議', opt:'選配', ent:'企業', eval:'需評估' }[b] || b;
+}
+
+function toggleFeature(group, id, event) {
+  if (event.target.classList.contains('info-btn')) return;
+  const s = state.selected[group];
+  if (!s) return;
+  // ecom：方案已包含的項目不可取消（取消後價格不變，但建立專案時對應 Scope 會消失）
+  if (isLockedIncluded(group, id)) { showToast('此項目已包含在方案內，無法取消'); return; }
+  // 由需求內容帶入的 pricing key：只能回「電商需求確認」調整，避免兩邊狀態不一致
+  if (isReqDerived(group, id)) { showToast('此項目由需求內容帶入，請回上一步「網站需求確認」調整'); return; }
+  if (s.has(id)) s.delete(id); else s.add(id);
+  const el = document.querySelector(`[data-group="${group}"][data-id="${id}"]`);
+  if (el) el.classList.toggle('selected', s.has(id));
+  // 需求書中有 dependency 指向功能清單（例如優惠券）→ 功能變動後重新計算需求狀態
+  if (isReqType()) { recomputeReq(); renderRequirements(); renderAdvanced(); }
+  updateSidebar();
+}
+
+function toggleDesc(key, event) {
+  event.stopPropagation();
+  document.getElementById(`desc-${key}`)?.classList.toggle('open');
+}
+
+// ══════════════════════════════════════════════════
+//  CONDITIONS
+// ══════════════════════════════════════════════════
+function selectCond(group, el, val) {
+  document.querySelectorAll(`#cond-${group} .cond-opt`).forEach(o => o.classList.remove('selected'));
+  el.classList.add('selected');
+  state.conds[group] = val;
+  updateSidebar();
+}
+function selectCondFlat(group, el, val, label) {
+  document.querySelectorAll(`#cond-${group} .cond-opt`).forEach(o => o.classList.remove('selected'));
+  el.classList.add('selected');
+  state.conds[group + 'Flat'] = val;
+  if (label !== undefined) state.conds[group + 'Label'] = label;
+  updateSidebar();
+}
+// 維護方案為選配持續性費用，不列入網站開發總價，僅記錄 key/label 供估價摘要顯示
+function selectMaint(el, key, label) {
+  document.querySelectorAll('#cond-maint .cond-opt').forEach(o => o.classList.remove('selected'));
+  el.classList.add('selected');
+  state.conds.maintKey = key;
+  state.conds.maintLabel = label;
+  updateSidebar();
+}
+// 修改次數不再以總價百分比計算，僅記錄 key/label 供估價摘要顯示，超出內含次數另行評估及報價
+function selectRevisionOpt(el, key, label) {
+  document.querySelectorAll('#cond-revision .cond-opt').forEach(o => o.classList.remove('selected'));
+  el.classList.add('selected');
+  state.conds.revisionKey = key;
+  state.conds.revisionLabel = label;
+  updateSidebar();
+}
+
+// ══════════════════════════════════════════════════
+//  REQUIREMENT（ecom 需求確認）— Step 2
+//  定義來自 requirements-ecom-v1.js；這裡只負責 render 與互動。
+//  價格完全由既有 FEATURES / calcPrice 負責，需求節點不帶任何金額。
+// ══════════════════════════════════════════════════
+function reqCtx() {
+  return {
+    // dependency 判斷用：只看「方案已含或客戶手動勾選」的功能，不含需求帶入項（避免循環）
+    hasFeature: (group, id) => !!(state.selected[group] && state.selected[group].has(id)),
+    // Snapshot 用：保存當時的功能名稱與是否方案內含
+    featureInfo: (group, id) => {
+      const item = (FEATURES[group] || []).find(i => i.id === id);
+      return { name: item ? item.name : '', included: isIncluded(group, id), evaluate: !!(item && item.evaluate),
+               publicName: (PUBLIC_FEATURE_COPY[group + '/' + id] || {}).name || '' };
+    },
+  };
+}
+
+// 重新計算需求狀態 → 更新由需求帶入的 pricing key
+function recomputeReq() {
+  if (!isReqType()) { state.reqEval = null; state.reqDerived = new Set(); return; }
+  state.reqEval = NicocoRequirements.evaluate(state.req.answers, reqCtx());
+  state.reqDerived = new Set(state.reqEval.derivedKeySet);
+}
+
+function buildRequirementSnapshot() {
+  const snap = NicocoRequirements.buildSnapshot(state.req.answers, reqCtx());
+  // Step 3 客戶自行加選的既有功能／服務（名稱與 key 一併保存；價格仍只存在 pricingBreakdown）
+  snap.additionalServices = [];
+  Object.keys(FEATURES).forEach(g => FEATURES[g].forEach(item => {
+    if (!(state.selected[g] && state.selected[g].has(item.id))) return;
+    if (isIncluded(g, item.id) || item.free) return;
+    const copy = PUBLIC_FEATURE_COPY[g + '/' + item.id];
+    snap.additionalServices.push({ group: g, id: item.id, name: item.name, publicName: copy ? copy.name : '', evaluate: !!item.evaluate });
+  }));
+  if (snap.additionalServices.some(a => a.evaluate)) snap.requiresManualReview = true;
+  snap.projectInfo = buildProjectInfo();
+  return snap;
+}
+
+function reqChanged() {
+  recomputeReq();
+  renderRequirements();
+  renderAdvanced();   // Step 3 的「由需求內容帶入」標示同步更新
+  updateSidebar();
+}
+
+function reqToggleCat(catKey) {
+  if (state.reqOpen.has(catKey)) state.reqOpen.delete(catKey); else state.reqOpen.add(catKey);
+  renderRequirements();
+}
+function reqToggle(sk) {
+  state.req.answers[sk] = !state.req.answers[sk];
+  reqChanged();
+}
+function reqSingle(sk, val) {
+  state.req.answers[sk] = state.req.answers[sk] === val ? null : val;
+  reqChanged();
+}
+function reqMulti(sk, val) {
+  const cur = Array.isArray(state.req.answers[sk]) ? state.req.answers[sk].slice() : [];
+  const i = cur.indexOf(val);
+  if (i === -1) cur.push(val); else cur.splice(i, 1);
+  state.req.answers[sk] = cur;
+  reqChanged();
+}
+// 文字輸入：只更新 state，不重繪（避免輸入時 focus 跳掉）
+function reqText(sk, val) { state.req.answers[sk] = val; recomputeReq(); updateSidebar(); }
+function reqBlocked(msg) { showToast(msg); }
+
+// 需求節點右側的計價提示（金額一律讀既有 FEATURES，不在需求定義內保存價格）
+function reqPricingTag(pricing) {
+  if (!pricing) return '';
+  if (Array.isArray(pricing)) {
+    // 一個選項對應多個既有項目：顯示合計區間（各項目仍由 calcPrice 各計一次）
+    const items = pricing.map(p => (FEATURES[p.group] || []).find(i => i.id === p.id)).filter(Boolean);
+    const lo = items.reduce((n, i) => n + i.price, 0), hi = items.reduce((n, i) => n + itemHigh(i), 0);
+    return `<span class="req-tag">加購 ${(lo/1000).toFixed(0)}k–${(hi/1000).toFixed(0)}k</span>`;
+  }
+  if (pricing.mode === 'base') return '<span class="req-tag base">方案內含</span>';
+  if (pricing.mode === 'evaluate') return '<span class="req-tag eval">需人工確認</span>';
+  if (pricing.mode === 'feature') {
+    if (isIncluded(pricing.group, pricing.id)) return '<span class="req-tag base">方案內含</span>';
+    const item = (FEATURES[pricing.group] || []).find(i => i.id === pricing.id);
+    if (!item) return '';
+    if (item.evaluate) return '<span class="req-tag eval">需評估</span>';
+    return `<span class="req-tag">加購 ${(item.price/1000).toFixed(0)}k–${(itemHigh(item)/1000).toFixed(0)}k</span>`;
+  }
+  return '';
+}
+
+function reqRenderNodes(nodes) {
+  const R = NicocoRequirements;
+  const a = state.req.answers;
+  const ctx = reqCtx();
+  let html = '';
+  (nodes || []).forEach(node => {
+    const sk = R.stateKeyOf(node);
+    const dep = R.checkRequires(node.requires, a, ctx);
+    const depMsg = dep.ok ? '' : R.depHint(dep);
+
+    if (node.type === 'check') {
+      const sel = !!a[sk] && dep.ok;
+      const pricing = sel ? R.resolvePricing(node, a) : (node.pricingRule ? null : node.pricing);
+      const click = dep.ok ? `reqToggle('${sk}')` : `reqBlocked('${escapeHTML(depMsg)}')`;
+      html += `<div class="req-node">
+        <div class="req-check${sel ? ' selected' : ''}${dep.ok ? '' : ' disabled'}" onclick="${click}">
+          <div class="req-box">${sel ? '✓' : ''}</div>
+          <div class="req-main">
+            <div class="req-label">${escapeHTML(node.label)}</div>
+            ${node.hint ? `<div class="req-hint">${escapeHTML(node.hint)}</div>` : ''}
+            ${depMsg ? `<div class="req-dep">${escapeHTML(depMsg)}</div>` : ''}
+          </div>
+          ${reqPricingTag(pricing)}
+        </div>
+        ${sel && node.children ? `<div class="req-children">${reqRenderNodes(node.children)}</div>` : ''}
+      </div>`;
+
+    } else if (node.type === 'single' || node.type === 'multi') {
+      const raw = a[sk];
+      const chosen = node.type === 'single' ? (raw ? [raw] : []) : (Array.isArray(raw) ? raw : []);
+      let opts = '', extra = '';
+      node.options.forEach(opt => {
+        const odep = R.checkRequires(opt.requires, a, ctx);
+        const ok = odep.ok && dep.ok;
+        const osel = chosen.indexOf(opt.value) !== -1 && ok;
+        const msg = ok ? '' : R.depHint(odep.ok ? dep : odep);
+        const fn = node.type === 'single' ? 'reqSingle' : 'reqMulti';
+        const click = ok ? `${fn}('${sk}','${opt.value}')` : `reqBlocked('${escapeHTML(msg)}')`;
+        opts += `<div class="req-opt${node.type === 'single' ? ' radio' : ''}${osel ? ' selected' : ''}${ok ? '' : ' disabled'}" onclick="${click}">
+          <div class="req-box">${osel && node.type === 'multi' ? '✓' : ''}</div>
+          <div class="req-main">
+            <div>${escapeHTML(opt.label)}</div>
+            ${opt.hint ? `<div class="req-hint">${escapeHTML(opt.hint)}</div>` : ''}
+            ${msg ? `<div class="req-dep">${escapeHTML(msg)}</div>` : ''}
+          </div>
+          ${reqPricingTag(opt.pricing)}
+        </div>`;
+        if (osel && opt.other) {
+          const ok2 = R.otherKeyOf(node.key, opt.value);
+          extra += `<input class="req-text" type="text" placeholder="${escapeHTML(opt.otherPlaceholder || '請簡述')}" value="${escapeHTML(a[ok2] || '')}" oninput="reqText('${ok2}', this.value)">`;
+        }
+        if (osel && opt.children) extra += `<div class="req-children">${reqRenderNodes(opt.children)}</div>`;
+      });
+      html += `<div class="req-q">
+        <div class="req-q-label">${escapeHTML(node.label)}</div>
+        ${node.hint ? `<div class="req-hint" style="margin-bottom:6px">${escapeHTML(node.hint)}</div>` : ''}
+        <div class="req-opts">${opts}</div>
+        ${extra}
+      </div>`;
+
+    } else if (node.type === 'text') {
+      html += `<div class="req-q">
+        <div class="req-q-label">${escapeHTML(node.label)}</div>
+        ${node.hint ? `<div class="req-hint" style="margin-bottom:6px">${escapeHTML(node.hint)}</div>` : ''}
+        <textarea class="req-text" rows="${node.rows || 2}" placeholder="${escapeHTML(node.placeholder || '')}" oninput="reqText('${sk}', this.value)">${escapeHTML(a[sk] || '')}</textarea>
+      </div>`;
+    }
+  });
+  return html;
+}
+
+function renderRequirements() {
+  const container = document.getElementById('featuresContainer');
+  if (!container || !isReqType()) return;
+  const R = NicocoRequirements;
+  const counts = (state.reqEval && state.reqEval.selectedCountByCat) || {};
+
+  let html = `<div class="req-intro">${singleEntryActive() ? '基礎建置' : '你選擇的「小型電商網站」方案'}<strong>已包含</strong>商品、購物車、Checkout、會員、訂單與後台六大系統，不需要另外勾選。請點開各區塊，確認是否還有以下額外或特殊需求。</div>`;
+
+  R.CATEGORIES.forEach(cat => {
+    const open = state.reqOpen.has(cat.key);
+    const n = counts[cat.key] || 0;
+    html += `<div class="req-cat${open ? ' open' : ''}">
+      <div class="req-cat-head" onclick="reqToggleCat('${cat.key}')">
+        <span class="req-cat-name">${escapeHTML(cat.label)}</span>
+        <span class="badge badge-inc">方案已包含</span>
+        <span class="req-cat-count">${n ? `已確認 ${n} 項需求` : (open ? '' : '點開確認需求')}</span>
+        <span class="req-cat-caret">${open ? '−' : '+'}</span>
+      </div>`;
+    if (open) {
+      html += `<div class="req-cat-body">
+        <div class="req-base">
+          <div class="req-base-title">方案基本包含</div>
+          <div class="req-base-list">${cat.baseIncludes.map(b => '✓ ' + escapeHTML(b)).join('　')}</div>
+          ${(cat.notes || []).map(t => `<div class="req-note">${escapeHTML(t)}</div>`).join('')}
+        </div>
+        <div class="req-sub-title">是否有以下額外／特殊需求</div>
+        ${reqRenderNodes(cat.items)}
+      </div>`;
+    }
+    html += `</div>`;
+  });
+  container.innerHTML = html;
+}
+
+// ══════════════════════════════════════════════════
+//  PRICING
+// ══════════════════════════════════════════════════
+
+// ── Requirement + Estimate v1：選取狀態 helper ──────────────────────
+// 是否啟用需求書流程：v1 只有 ecom，且需求定義檔已成功載入
+function isReqType() {
+  return state.type === 'ecom' && !!window.NicocoRequirements;
+}
+// 該 pricing key 是否由需求內容帶入
+function isReqDerived(group, id) {
+  return isReqType() && state.reqDerived.has(group + ':' + id);
+}
+// 某功能是否視為「已選」＝ 客戶手動勾選 ∪ 需求內容帶入。
+// calcPrice 仍只走訪一次 FEATURES，因此同一個 pricing key 不論被幾個需求指到，都只會計價一次。
+function isSelected(group, id) {
+  return !!(state.selected[group] && state.selected[group].has(id)) || isReqDerived(group, id);
+}
+// ecom 方案已包含項目：鎖定為已選、不可取消（計價仍為 0 額外加價，Scope 對應維持原行為）
+function isLockedIncluded(group, id) {
+  return state.type === 'ecom' && isIncluded(group, id);
+}
+
+// 判斷某項目是否已包含於方案基礎費內
+function isIncluded(group, id) {
+  if (!state.type) return false;
+  const inc = TYPE_CONFIG[state.type].included || {};
+  return !!(inc[group] && inc[group].includes(id));
+}
+
+// itemHigh() 已移到 pricing-data.js（與 TYPE_CONFIG／FEATURES 同一個檔案，後台需求審核共用同一份價格資料）
+
+// 複雜度調整費設定：rate 只作用於「基礎方案價格」，並各自設有上限（cap），避免無限放大
+const COMPLEXITY_TABLE = {
+  0:    { rate: 0,    cap: 0 },      // 標準
+  0.10: { rate: 0.10, cap: 15000 },  // 中度客製
+  0.20: { rate: 0.20, cap: 30000 },  // 高度客製
+};
+
+function calcPrice() {
+  if (!state.type) return null;
+  const cfg = TYPE_CONFIG[state.type];
+  const isCustom = !cfg.priceMin; // 客製化系統：不顯示固定總價
+
+  let addMin = 0, addMax = 0;
+  const includedItems = [];  // 已包含於方案，勾選但不計費
+  const addons = [];         // 真正加價的項目（含 id，方便 UI 拉出特定項目如客製UI/UX、進階正式環境設定）
+  const evalItems = [];      // 需評估項目
+
+  Object.keys(FEATURES).forEach(group => {
+    if (group === 'evaluate') return;
+    FEATURES[group].forEach(item => {
+      if (!isSelected(group, item.id)) return;
+
+      // ① free 項目（GA、GSC 等）—— 永不計費，也不列為 included
+      if (item.free || item.price === 0) return;
+
+      // ② included 項目 —— 已含在方案費，不加費但列出來（客製化系統無 included，一律視為計費項目）
+      if (!isCustom && isIncluded(group, item.id)) {
+        includedItems.push({ name: item.name, group, id: item.id });
+        return;
+      }
+
+      // ③ 真正的加選功能（或客製化系統的參考開發價值）—— 計費
+      const hi = itemHigh(item);
+      addMin += item.price;
+      addMax += hi;
+      addons.push({ id: item.id, group, name: item.name, min: item.price, max: hi });
+    });
+  });
+
+  // 需評估項目
+  (FEATURES.evaluate || []).forEach(item => {
+    if (isSelected('evaluate', item.id))
+      evalItems.push(item.name);
+  });
+
+  // 客製化系統：不算固定總價，只顯示「目前所選功能之參考開發價值」
+  if (isCustom) {
+    return {
+      evaluate: true,
+      refMin: addMin, refMax: addMax,
+      addons, includedItems, evalItems,
+    };
+  }
+
+  const baseMin = cfg.priceMin, baseMax = cfg.priceMax;
+
+  // 專案複雜度調整費：只依「基礎方案價格」計算，不對加購功能（addons）再乘一次，
+  // 並以固定金額（cap）封頂，避免複雜度與其他倍率疊加造成價格不合理暴增。
+  const compCfg = COMPLEXITY_TABLE[state.conds.complexity] || COMPLEXITY_TABLE[0];
+  const complexityFeeMin = Math.min(Math.round(baseMin * compCfg.rate), compCfg.cap);
+  const complexityFeeMax = Math.min(Math.round(baseMax * compCfg.rate), compCfg.cap);
+
+  const subtotalMin = baseMin + addMin + complexityFeeMin;
+  const subtotalMax = baseMax + addMax + complexityFeeMax;
+
+  // 急件費：獨立計算，以「基礎方案+加購+複雜度」小計為基礎，於 UI 單獨顯示，不隱藏在總價中
+  const rushFeeMin = state.conds.timeline ? Math.round(subtotalMin * state.conds.timeline) : 0;
+  const rushFeeMax = state.conds.timeline ? Math.round(subtotalMax * state.conds.timeline) : 0;
+
+  // 保固期延長為一次性費用，計入總價；維護方案為選配持續性費用，不計入開發總價（見 state.conds.maintKey）
+  // 修改次數不再以總價百分比計算（見 state.conds.revisionKey），超出次數另行評估及報價，不影響本次估價
+  const warrantyFee = state.conds.warrantyFlat || 0;
+
+  const minTotal = subtotalMin + rushFeeMin + warrantyFee;
+  const maxTotal = subtotalMax + rushFeeMax + warrantyFee;
+  // 需求書中的 evaluate 需求：只標示需人工確認，不加入 evalItems（evaluationItems），
+  // 因此不會在建立專案時自動變成 Scope。
+  const reqEvalItems = (isReqType() && state.reqEval) ? state.reqEval.evaluateItems.map(e => e.label) : [];
+  const requiresManualReview = evalItems.length > 0 || reqEvalItems.length > 0;
+
+  // Duration
+  const base = cfg.days + addons.length * 2;
+  const minDays = Math.round(base * 0.9);
+  const maxDays = Math.round(base * 1.3);
+
+  return {
+    minTotal, maxTotal, mid: Math.round((minTotal+maxTotal)/2), minDays, maxDays,
+    addons, includedItems, evalItems,
+    baseMin, baseMax,
+    addMin, addMax,
+    complexityFeeMin, complexityFeeMax,
+    rushFeeMin, rushFeeMax,
+    warrantyFee,
+    requiresManualReview,
+    reqEvalItems,
+  };
+}
+
+// ══════════════════════════════════════════════════
+//  SIDEBAR
+// ══════════════════════════════════════════════════
+let _animFrame = null, _dispPrice = 0;
+function animPrice(target) {
+  if (_animFrame) cancelAnimationFrame(_animFrame);
+  const start = _dispPrice, dur = 380, t0 = performance.now();
+  const el = document.getElementById('priceValue');
+  function tick(now) {
+    const p = Math.min((now-t0)/dur, 1);
+    const e = 1 - Math.pow(1-p, 3);
+    _dispPrice = Math.round(start + (target-start)*e);
+    el.textContent = `NT$${_dispPrice.toLocaleString()}`;
+    if (p < 1) _animFrame = requestAnimationFrame(tick);
+  }
+  _animFrame = requestAnimationFrame(tick);
+}
+
+function updateSidebar() {
+  const result = calcPrice();
+  const cfg = state.type ? TYPE_CONFIG[state.type] : null;
+
+  // Base block
+  const baseEl = document.getElementById('sidebarBase');
+  const typeNameEl = document.getElementById('sidebarTypeName');
+  if (cfg) {
+    baseEl.style.display = 'block';
+    typeNameEl.textContent = clientTypeName(cfg);
+  } else {
+    baseEl.style.display = 'none';
+  }
+
+  // Addon list
+  const addonLabel = document.getElementById('addonLabel');
+  const addonList  = document.getElementById('addonList');
+  const priceBlock = document.getElementById('priceBlock');
+  const rangeEl    = document.getElementById('priceRange');
+  const durEl      = document.getElementById('durationValue');
+
+  // 維護方案提示（選配，不列入開發總價）
+  const maintNoteEl = document.getElementById('sidebarMaintNote');
+  if (state.conds.maintKey && state.conds.maintKey !== 'none') {
+    const maintPrice = { hourly:'NT$800–1,500/hr', basic:'NT$2,000–5,000/月', advanced:'NT$5,000–10,000+/月' }[state.conds.maintKey] || '';
+    maintNoteEl.style.display = 'block';
+    maintNoteEl.innerHTML = `選配維護：${state.conds.maintLabel}（${maintPrice}）<br>不列入本次開發總價`;
+  } else {
+    maintNoteEl.style.display = 'none';
+  }
+
+  if (!result) {
+    if (_animFrame) cancelAnimationFrame(_animFrame);
+    _dispPrice = 0;
+    document.getElementById('priceValue').textContent = 'NT$0';
+    rangeEl.textContent = singleEntryActive() ? '開始填寫後顯示預估' : '請先選擇專案類型';
+    durEl.textContent = '—';
+    addonList.innerHTML = '<div class="sidebar-empty">尚未選擇任何功能</div>';
+    addonLabel.style.display = 'none';
+    return;
+  }
+
+  if (result.evaluate) {
+    // 客製化系統：不顯示固定總價，改顯示「目前所選功能之參考開發價值」
+    if (_animFrame) cancelAnimationFrame(_animFrame);
+    _dispPrice = 0;
+    document.getElementById('priceValue').textContent = '—';
+    document.getElementById('priceValue').style.fontSize = '20px';
+    rangeEl.innerHTML = '<span style="color:var(--amber);font-weight:600">需專案評估</span>';
+    durEl.textContent = '依需求而定';
+
+    const hasSelection = (result.addons && result.addons.length) || (result.evalItems && result.evalItems.length);
+    if (!hasSelection) {
+      addonLabel.style.display = 'none';
+      addonList.innerHTML = '<div class="sidebar-empty" style="color:var(--amber)">需專人評估，不自動報價</div>';
+      return;
+    }
+
+    addonLabel.style.display = 'none';
+    const sectionTitle = (label, color='var(--ink-30)') =>
+      `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;
+        color:${color};padding-bottom:5px;border-bottom:1px solid var(--ink-10);margin-bottom:4px">${label}</div>`;
+    let html = '';
+    if (result.addons.length) {
+      html += `<div style="background:var(--amber-light);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:11px;color:#92400e;line-height:1.5">
+        目前所選功能之參考開發價值：NT$${result.refMin.toLocaleString()} – NT$${result.refMax.toLocaleString()}<br>
+        此金額僅供初步預算參考，實際報價需依系統架構、功能複雜度、第三方服務與開發時程評估。
+      </div>`;
+      html += sectionTitle(`已選功能（${result.addons.length} 項）`);
+      html += result.addons.map(a =>
+        `<div class="addon-item"><span class="addon-name">+ ${pubName(a.name)}</span><span class="addon-price">${(a.min/1000).toFixed(0)}k</span></div>`
+      ).join('');
+    }
+    if (result.evalItems.length) {
+      if (html) html += '<div style="height:10px"></div>';
+      html += sectionTitle(`需評估（${result.evalItems.length} 項）`, 'var(--amber)');
+      html += result.evalItems.map(n =>
+        `<div class="addon-item"><span class="addon-name">◆ ${pubName(n)}</span><span class="addon-eval">評估中</span></div>`
+      ).join('');
+    }
+    addonList.innerHTML = html;
+    return;
+  }
+
+  document.getElementById('priceValue').style.fontSize = '';
+  animPrice(result.mid);
+  rangeEl.textContent = `NT$${result.minTotal.toLocaleString()} – NT$${result.maxTotal.toLocaleString()}`;
+  durEl.textContent = `約 ${result.minDays}–${result.maxDays} 個工作天`;
+
+  // ── Addon list：三段式 ─────────────────────────────
+  // 段一：已包含項目（灰色）
+  const incHtml = result.includedItems.length
+    ? result.includedItems.map(a =>
+        `<div class="addon-item"><span class="addon-name" style="color:var(--ink-30)">✓ ${pubName(a.name)}</span><span style="font-size:10px;color:var(--green);font-weight:500">已含</span></div>`
+      ).join('')
+    : '';
+
+  // 段二：加選功能（正常）
+  const addHtml = result.addons.length
+    ? result.addons.map(a =>
+        `<div class="addon-item"><span class="addon-name">+ ${pubName(a.name)}</span><span class="addon-price">${(a.min/1000).toFixed(0)}k</span></div>`
+      ).join('')
+    : '';
+
+  // 段三：調整項目（複雜度調整費／急件費，各自獨立顯示，不隱藏在總價內）
+  const adjRows = [];
+  if (result.complexityFeeMin || result.complexityFeeMax) {
+    adjRows.push(`<div class="addon-item"><span class="addon-name">◇ 專案複雜度調整</span><span class="addon-price">+${(result.complexityFeeMin/1000).toFixed(0)}k–${(result.complexityFeeMax/1000).toFixed(0)}k</span></div>`);
+  }
+  if (result.rushFeeMin || result.rushFeeMax) {
+    adjRows.push(`<div class="addon-item"><span class="addon-name">◇ 急件調整（+20%）</span><span class="addon-price">+${(result.rushFeeMin/1000).toFixed(0)}k–${(result.rushFeeMax/1000).toFixed(0)}k</span></div>`);
+  }
+  if (result.warrantyFee) {
+    adjRows.push(`<div class="addon-item"><span class="addon-name">◇ ${state.conds.warrantyLabel || '保固延長'}</span><span class="addon-price">+${(result.warrantyFee/1000).toFixed(0)}k</span></div>`);
+  }
+  const adjHtml = adjRows.join('');
+
+  // 段四：需評估
+  const evalHtml = result.evalItems.length
+    ? result.evalItems.map(n =>
+        `<div class="addon-item"><span class="addon-name">◆ ${pubName(n)}</span><span class="addon-eval">評估中</span></div>`
+      ).join('')
+    : '';
+
+  // 段五：需求書中需人工確認的需求（不計入預估價格）
+  const reqEvalHtml = (result.reqEvalItems && result.reqEvalItems.length)
+    ? result.reqEvalItems.map(n =>
+        `<div class="addon-item"><span class="addon-name">◆ ${pubName(n)}</span><span class="addon-eval">待確認</span></div>`
+      ).join('')
+    : '';
+
+  const hasAny = incHtml || addHtml || adjHtml || evalHtml || reqEvalHtml;
+
+  if (!hasAny) {
+    addonList.innerHTML = '<div class="sidebar-empty">尚未加選功能</div>';
+    addonLabel.style.display = 'none';
+  } else {
+    addonLabel.style.display = 'none'; // 用各段自己的標題取代
+    const sectionTitle = (label, color='var(--ink-30)') =>
+      `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;
+        color:${color};padding-bottom:5px;border-bottom:1px solid var(--ink-10);margin-bottom:4px">${label}</div>`;
+
+    let html = '';
+    if (incHtml) {
+      html += sectionTitle(`方案已包含（${result.includedItems.length} 項）`);
+      html += incHtml;
+    }
+    if (addHtml) {
+      if (html) html += '<div style="height:10px"></div>';
+      html += sectionTitle(`另外加購（${result.addons.length} 項）`);
+      html += addHtml;
+    }
+    if (adjHtml) {
+      if (html) html += '<div style="height:10px"></div>';
+      html += sectionTitle(`調整項目`);
+      html += adjHtml;
+    }
+    if (evalHtml) {
+      if (html) html += '<div style="height:10px"></div>';
+      html += sectionTitle(`需評估（${result.evalItems.length} 項）`, 'var(--amber)');
+      html += evalHtml;
+    }
+    if (reqEvalHtml) {
+      if (html) html += '<div style="height:10px"></div>';
+      html += sectionTitle(`需求待人工確認（${result.reqEvalItems.length} 項）`, 'var(--amber)');
+      html += reqEvalHtml;
+    }
+    addonList.innerHTML = html;
+  }
+}
+
+// ══════════════════════════════════════════════════
+//  VALIDATION
+// ══════════════════════════════════════════════════
+function validate() {
+  let ok = true;
+  const nameEl = document.getElementById('f-name');
+  const nameGrp = document.getElementById('fg-name');
+  if (!nameEl.value.trim()) {
+    nameGrp.classList.add('has-err'); ok = false;
+  } else { nameGrp.classList.remove('has-err'); }
+
+  const emailEl = document.getElementById('f-email');
+  const emailGrp = document.getElementById('fg-email');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailEl.value.trim())) {
+    emailGrp.classList.add('has-err'); ok = false;
+  } else { emailGrp.classList.remove('has-err'); }
+
+  if (!ok) showToast('請填寫必填欄位後再繼續');
+  return ok;
+}
+
+
+function escapeHTML(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+// ══════════════════════════════════════════════════
+//  SUMMARY (Step 5)
+// ══════════════════════════════════════════════════
+function goToSummary() {
+  if (!validate()) return;
+  if (isReqType() && state.projectInfo.hasTargetDate === 'yes' && !state.projectInfo.targetDate) {
+    showToast('請填寫希望上線日期，或改選「沒有」'); return;
+  }
+  state.contact = {
+    name:    document.getElementById('f-name').value.trim(),
+    company: document.getElementById('f-company').value.trim(),
+    email:   document.getElementById('f-email').value.trim(),
+    phone:   document.getElementById('f-phone').value.trim(),
+    line:    document.getElementById('f-line').value.trim(),
+    budget:  document.getElementById('f-budget').value,
+    launch:  document.getElementById('f-launch').value.trim(),
+    notes:   document.getElementById('f-notes').value.trim(),
+  };
+  // 需求書模式：既有的 launchDate 欄位改存客戶指定的上線日期（沒有指定則留空），後台顯示位置不變
+  if (isReqType()) {
+    state.contact.launch = state.projectInfo.hasTargetDate === 'yes' ? state.projectInfo.targetDate : '';
+  }
+  renderSummary();
+  goTo(5);
+}
+
+function renderSummary() {
+  const result = calcPrice();
+  const cfg = TYPE_CONFIG[state.type];
+  const c = state.contact;
+
+  // 分類：已包含 / 一般加購 / 客製UI／UX / 進階正式環境設定 / 需評估
+  const includedNames = [];
+  const addonItems = [];     // { id, name, min, max } 排除 ui-design / launch-adv
+  let uiDesignItem = null;
+  let launchAdvItem = null;
+  const evalNames = [];
+
+  Object.keys(FEATURES).forEach(group => {
+    FEATURES[group].forEach(item => {
+      if (!isSelected(group, item.id)) return;
+      if (item.evaluate) { evalNames.push(pubName(item.name)); return; }
+      if (item.free || item.price === 0) return;
+
+      const isCustomType = result && result.evaluate;
+      if (!isCustomType && isIncluded(group, item.id)) { includedNames.push(pubName(item.name)); return; }
+
+      const hi = itemHigh(item);
+      if (item.id === 'ui-design')  { uiDesignItem  = { name: pubName(item.name), min: item.price, max: hi }; return; }
+      if (item.id === 'launch-adv') { launchAdvItem = { name: pubName(item.name), min: item.price, max: hi }; return; }
+      addonItems.push({ name: pubName(item.name), min: item.price, max: hi });
+    });
+  });
+
+  const today = new Date().toLocaleDateString('zh-TW', {year:'numeric',month:'long',day:'numeric'});
+
+  let priceHtml = '';
+  if (result && result.evaluate) {
+    const refHtml = (result.addons && result.addons.length)
+      ? `<div class="final-price-range" style="margin-top:6px">目前所選功能之參考開發價值：NT$${result.refMin.toLocaleString()} – NT$${result.refMax.toLocaleString()}</div>
+         <div style="font-size:11px;color:var(--ink-30);margin-top:4px">此金額僅供初步預算參考，實際報價需依系統架構、功能複雜度、第三方服務與開發時程評估。</div>`
+      : '';
+    priceHtml = `
+      <div class="final-evaluate-block">
+        <div class="final-evaluate-icon">💼</div>
+        <div class="final-evaluate-title">此專案需要專人評估</div>
+        <div class="final-evaluate-sub">你的需求屬於客製化系統範疇，<br>費用與工期因複雜度差異顯著，無法自動計算。<br>我們會在收到需求後 1–2 個工作天聯繫你。</div>
+        ${refHtml}
+      </div>`;
+  } else if (result) {
+    priceHtml = `
+      <div class="final-price-block">
+        <div class="final-price-label">線上初步估價${result.requiresManualReview ? '（部分項目待評估）' : ''}</div>
+        <div class="final-price-main">NT$${result.mid.toLocaleString()}</div>
+        <div class="final-price-range">參考範圍 NT$${result.minTotal.toLocaleString()} – NT$${result.maxTotal.toLocaleString()}</div>
+        <div class="final-duration">預估工期：${result.minDays}–${result.maxDays} 個工作天</div>
+        <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.55);line-height:1.6">此金額為依目前所選需求產生之線上初步估價，非正式報價。實際專案費用需經需求確認、功能範圍（Scope）、開發細節與專案複雜度人工評估後，以正式報價單為準。</div>
+        ${result.requiresManualReview ? `<div style="margin-top:10px;font-size:12px;color:#fde68a;line-height:1.5">⚠ 此專案包含需人工評估項目；以上僅為目前可計價部分，不代表完整專案總價。</div>` : ''}
+      </div>`;
+  }
+
+  const contactRows = [
+    c.name    ? `<div class="cs-item"><div class="cs-label">姓名</div><div class="cs-value">${escapeHTML(c.name)}</div></div>` : '',
+    c.company ? `<div class="cs-item"><div class="cs-label">公司</div><div class="cs-value">${escapeHTML(c.company)}</div></div>` : '',
+    c.email   ? `<div class="cs-item"><div class="cs-label">Email</div><div class="cs-value">${escapeHTML(c.email)}</div></div>` : '',
+    c.phone   ? `<div class="cs-item"><div class="cs-label">電話</div><div class="cs-value">${escapeHTML(c.phone)}</div></div>` : '',
+    c.budget  ? `<div class="cs-item"><div class="cs-label">預算</div><div class="cs-value">${escapeHTML(c.budget)}</div></div>` : '',
+    c.launch  ? `<div class="cs-item"><div class="cs-label">上線時間</div><div class="cs-value">${escapeHTML(c.launch)}</div></div>` : '',
+  ].filter(Boolean).join('');
+
+  document.getElementById('summaryContent').innerHTML = `
+    <div class="quote-banner">
+      <div>
+        <div class="qb-id">${state.quoteId}</div>
+        <div class="qb-note">報價編號 — 可用此編號追蹤需求</div>
+      </div>
+      <div class="qb-date">${today}</div>
+    </div>
+
+    ${priceHtml}
+
+    ${isReqType() ? `
+    <div class="final-card">
+      <div class="final-section" style="margin-bottom:0">
+        <div class="final-section-title">需求摘要（要做什麼）</div>
+        <div style="font-size:12px;color:var(--ink-60);line-height:1.6;margin-bottom:10px">以下是你這次確認的需求內容。這份內容會原樣保存為你的原始需求，後續討論確認的正式需求會另外記錄。</div>
+        ${NicocoRequirements.renderSnapshotHtml(buildRequirementSnapshot())}
+      </div>
+    </div>
+    <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--ink-30);margin:18px 0 8px">估價明細（目前預估多少錢）</div>` : ''}
+
+    <div class="final-card">
+      <div class="final-section">
+        <div class="final-section-title">1. 基礎網站方案</div>
+        <div style="font-size:15px;font-weight:600;color:var(--ink)">${clientTypeName(cfg)}</div>
+        <div style="font-size:13px;color:var(--ink-60);margin-top:2px">${cfg.priceMin ? `NT$${cfg.priceMin.toLocaleString()} – NT$${cfg.priceMax.toLocaleString()}` : '依需求專案評估'}</div>
+        <div style="font-size:12px;color:var(--ink-60);margin-top:4px">含 RWD 響應式・基礎 SEO・SSL 憑證・基本部署・基本 DNS 指向</div>
+      </div>
+
+      ${includedNames.length ? `
+      <div class="final-section">
+        <div class="final-section-title">2. 方案已包含功能（${includedNames.length} 項，不另計費）</div>
+        <div class="feature-tags">
+          ${includedNames.map(n=>`<span class="ftag" style="background:var(--green-light);color:var(--green)">✓ ${n}</span>`).join('')}
+        </div>
+      </div>` : ''}
+
+      ${addonItems.length ? `
+      <div class="final-section">
+        <div class="final-section-title">3. 額外功能模組（${addonItems.length} 項）</div>
+        <table style="width:100%;border-collapse:collapse">
+          ${addonItems.map(a=>`<tr><td style="padding:4px 0;font-size:13px;color:var(--ink)">${a.name}</td><td style="padding:4px 0;font-size:13px;color:var(--ink-60);text-align:right">NT$${a.min.toLocaleString()} – NT$${a.max.toLocaleString()}</td></tr>`).join('')}
+        </table>
+      </div>` : ''}
+
+      ${uiDesignItem ? `
+      <div class="final-section">
+        <div class="final-section-title">4. 客製 UI／UX</div>
+        <div style="display:flex;justify-content:space-between;font-size:13px"><span>${uiDesignItem.name}</span><span style="color:var(--ink-60)">NT$${uiDesignItem.min.toLocaleString()} – NT$${uiDesignItem.max.toLocaleString()}</span></div>
+      </div>` : ''}
+
+      ${(result && !result.evaluate && (result.complexityFeeMin || result.complexityFeeMax)) ? `
+      <div class="final-section">
+        <div class="final-section-title">5. 專案複雜度調整</div>
+        <div style="display:flex;justify-content:space-between;font-size:13px"><span>${{0.10:'中度客製',0.20:'高度客製'}[state.conds.complexity] || '客製調整'}</span><span style="color:var(--ink-60)">+NT$${result.complexityFeeMin.toLocaleString()} – NT$${result.complexityFeeMax.toLocaleString()}</span></div>
+        <div style="font-size:11px;color:var(--ink-30);margin-top:4px">僅依基礎方案價格計算，並設有固定上限，不對加購功能重複計價。</div>
+      </div>` : ''}
+
+      ${(result && !result.evaluate && (result.rushFeeMin || result.rushFeeMax)) ? `
+      <div class="final-section">
+        <div class="final-section-title">6. 急件調整</div>
+        <div style="display:flex;justify-content:space-between;font-size:13px"><span>急件（+20%）</span><span style="color:var(--ink-60)">+NT$${result.rushFeeMin.toLocaleString()} – NT$${result.rushFeeMax.toLocaleString()}</span></div>
+      </div>` : ''}
+
+      ${(result && !result.evaluate && result.warrantyFee) ? `
+      <div class="final-section">
+        <div class="final-section-title">保固延長</div>
+        <div style="display:flex;justify-content:space-between;font-size:13px"><span>${state.conds.warrantyLabel || '延長原功能 Bug 保固'}</span><span style="color:var(--ink-60)">+NT$${result.warrantyFee.toLocaleString()}</span></div>
+      </div>` : ''}
+
+      ${launchAdvItem ? `
+      <div class="final-section">
+        <div class="final-section-title">7. Production 進階設定</div>
+        <div style="display:flex;justify-content:space-between;font-size:13px"><span>${launchAdvItem.name}</span><span style="color:var(--ink-60)">NT$${launchAdvItem.min.toLocaleString()} – NT$${launchAdvItem.max.toLocaleString()}</span></div>
+      </div>` : ''}
+
+      ${(result && !result.evaluate) ? `
+      <div class="final-section" style="background:var(--ink-10);border-radius:8px;padding:12px 14px">
+        <div class="final-section-title">8. ${result.requiresManualReview ? '目前可計價部分（非完整總價）' : '線上初步估價總計'}</div>
+        <div style="font-size:17px;font-weight:700;color:var(--ink)">NT$${result.minTotal.toLocaleString()} – NT$${result.maxTotal.toLocaleString()}</div>
+        <div style="font-size:11px;color:var(--ink-30);margin-top:5px">非正式報價，實際費用需經需求確認與 Scope 評估後，以正式報價單為準。</div>
+        ${result.requiresManualReview ? `<div style="font-size:11px;color:var(--amber);margin-top:5px">包含需人工評估項目，完整專案價格需於需求訪談後另行評估。</div>` : ''}
+      </div>` : ''}
+
+      ${evalNames.length ? `
+      <div class="final-section">
+        <div class="final-section-title">需評估的項目（${evalNames.length} 項）</div>
+        <div class="feature-tags">
+          ${evalNames.map(n=>`<span class="ftag eval">◆ ${n}</span>`).join('')}
+        </div>
+      </div>` : ''}
+
+      <div class="final-section">
+        <div class="final-section-title">9. 第三方服務費（客戶自行負擔）</div>
+        <div style="font-size:12px;color:var(--ink-60);line-height:1.6">
+          網域、DNS、Firebase／Railway／Vercel／Cloudflare 等主機使用費、Google Workspace／企業 Email、金流交易手續費、簡訊費、第三方 API 月費等，由客戶依實際使用方案自行負擔，不包含於本開發估價。<br>
+          <span style="color:var(--ink-30)">（協助串接、設定、開發等工作本身仍屬開發費，例如：綠界金流串接的開發工作屬於開發費，但綠界本身收取的交易手續費不屬於開發費）</span>
+        </div>
+      </div>
+
+      ${isReqType() ? `
+      <div class="final-section">
+        <div class="final-section-title">後續維護服務</div>
+        <div style="font-size:13px;color:var(--ink)">${maintInterestLabel()}</div>
+        <div style="font-size:11px;color:var(--ink-30);margin-top:4px">僅記錄是否希望了解，不計入本次開發估價。</div>
+      </div>
+      <div class="final-section">
+        <div class="final-section-title">修改說明</div>
+        <div style="font-size:13px;color:var(--ink-60);line-height:1.6">${REQ_REVISION_TEXT}</div>
+      </div>` : `
+      <div class="final-section">
+        <div class="final-section-title">10. 選配維護費</div>
+        ${state.conds.maintKey && state.conds.maintKey !== 'none'
+          ? `<div style="font-size:13px;color:var(--ink)">${state.conds.maintLabel}
+              <span style="color:var(--ink-60);font-size:12px">（${{hourly:'NT$800–1,500/hr', basic:'NT$2,000–5,000/月', advanced:'NT$5,000–10,000+/月'}[state.conds.maintKey]}）</span>
+             </div>
+             <div style="font-size:11px;color:var(--ink-30);margin-top:4px">不列入本次開發總價，為選配持續性服務。</div>`
+          : `<div style="font-size:13px;color:var(--ink-60)">未選擇維護方案</div>`}
+      </div>
+
+      <div class="final-section">
+        <div class="final-section-title">修改次數</div>
+        <div style="font-size:13px;color:var(--ink)">${state.conds.revisionLabel}</div>
+        <div style="font-size:11px;color:var(--ink-30);margin-top:4px">超出修改次數或原確認 Scope 的需求，將依實際內容另行評估及報價。</div>
+      </div>`}
+
+      ${contactRows ? `
+      <div class="final-section">
+        <div class="final-section-title">聯絡資訊</div>
+        <div class="contact-summary">${contactRows}</div>
+      </div>` : ''}
+
+      ${c.notes ? `
+      <div class="final-section" style="margin-bottom:0">
+        <div class="final-section-title">補充說明</div>
+        <div style="font-size:13px;color:var(--ink-60);line-height:1.6">${escapeHTML(c.notes)}</div>
+      </div>` : ''}
+
+      <div class="final-section">
+        <div class="final-section-title">11. 合作流程與付款方式</div>
+        <div style="font-size:12px;color:var(--ink-60);line-height:1.7;margin-bottom:8px">
+          本頁顯示之金額為<strong>線上初步估價</strong>，不等同正式成交金額。正式合作流程為：線上初估 → 客戶送出需求 → 人工確認需求 → 確認功能範圍（Scope） → 產生正式報價 → 客戶確認 → 選擇付款方式 → 收到約定啟動款 → 開始正式開發。正式專案原則上於收到約定之啟動款後開始進行開發，不提供「0 元開始、完成後才支付全部款項」的付款模式。
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="background:var(--ink-10);border-radius:8px;padding:10px 12px">
+            <div style="font-size:12.5px;font-weight:600;color:var(--ink)">一次付款（100%）</div>
+            <div style="font-size:11.5px;color:var(--ink-60);margin-top:3px;line-height:1.6">正式報價與 Scope 確認 → 支付 100% → 開始正式開發。付款方式本身不影響網站開發價值，不自動提供折扣。</div>
+          </div>
+          <div style="background:var(--accent-light);border-radius:8px;padding:10px 12px">
+            <div style="font-size:12.5px;font-weight:600;color:var(--ink)">兩期付款（推薦）— 50% 啟動款 + 50% 尾款</div>
+            <div style="font-size:11.5px;color:var(--ink-60);margin-top:3px;line-height:1.6">正式報價與 Scope 確認 → 支付 50% 啟動款 → 開始開發 → 完成主要功能 → 客戶驗收 → 完成 Scope 內必要修正 → 支付 50% 尾款 → 正式 Production 上線／完整交付。</div>
+          </div>
+          <div style="background:var(--ink-10);border-radius:8px;padding:10px 12px">
+            <div style="font-size:12.5px;font-weight:600;color:var(--ink)">三期付款 — 40% 啟動款 + 30% 中期款 + 30% 尾款</div>
+            <div style="font-size:11.5px;color:var(--ink-60);margin-top:3px;line-height:1.6">正式報價與 Scope 確認 → 支付 40% 啟動款 → 開始開發 → 達成中期開發里程碑 → 支付 30% 中期款 → 完成剩餘 Scope → 客戶驗收 → 完成 Scope 內必要修正 → 支付 30% 尾款 → Production 正式上線／完整交付。</div>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--ink-30);margin-top:8px;line-height:1.6">
+          付款里程碑以「專案開發階段」為依據，而非單純以經過天數計算。原則上專案完成驗收並支付尾款後，才進行正式 Production 上線或完整交付；但若因第三方金流正式環境驗證、Payment Callback、正式 DNS／Email DNS（SPF/DKIM/DMARC）、Production API 等必須在正式環境測試的第三方服務，可先進行必要之技術性 Production 測試，完整交付與專案結案仍以尾款完成為原則。
+        </div>
+      </div>
+
+      <div class="final-section">
+        <div class="final-section-title">12. 需求變更與追加報價（Change Request）</div>
+        <div style="font-size:12px;color:var(--ink-60);line-height:1.7">
+          <div style="margin-bottom:6px"><strong>A．原範圍內小幅修改</strong>（文案替換、圖片更換、字體/間距、小幅 Layout 微調）：原則上使用方案內含之修改額度（2 次內含）。</div>
+          <div style="margin-bottom:6px"><strong>B．超過修改額度但未變更 Scope</strong>：依實際內容另行評估及報價，不使用專案總價百分比計費。</div>
+          <div style="margin-bottom:6px"><strong>C．追加需求／Scope Change</strong>（如首頁整體重新設計、大幅版型重整、新增 Section／頁面／會員功能／Login／第三方 API／預約系統／金流／CMS、商品架構重大修改等）：需重新評估工時與費用，經雙方確認後執行，流程為「客戶提出新需求 → 評估需求 → 提供追加報價 → 客戶確認 → 開始追加開發」。</div>
+          <div style="font-size:11px;color:var(--ink-30);margin-top:4px">追加報價付款原則（可由雙方協調調整）：NT$10,000 以下之小額追加，原則上併入下一期款項或尾款；超過 NT$10,000 之大型追加，原則上 50% 追加需求啟動款＋50% 併入下一期款項或最終尾款。</div>
+        </div>
+      </div>
+
+      <div class="final-section">
+        <div class="final-section-title">14. 驗收與交付</div>
+        <div style="font-size:12px;color:var(--ink-60);line-height:1.7">
+          客戶收到驗收通知後，原則上於 14 天內確認 Scope 內功能，並提出必要之 Bug 或 Scope 內修改事項；原 Scope 內問題進行修正，新增功能或重大設計變更則視為 12. 所述之需求變更（Change Request）。若超過驗收期間未收到回覆，專案將進入待交付狀態，後續時程與正式上線時間將依當時排程重新安排。
+        </div>
+      </div>
+
+      <div class="final-section">
+        <div class="final-section-title">15. 客戶提供資料與專案時程</div>
+        <div style="font-size:12px;color:var(--ink-60);line-height:1.7">
+          若因客戶未能提供必要之文案、圖片、商品資料、帳號、API Credentials、金流資料、網域資訊或其他確認事項，導致專案無法繼續進行，專案時程將順延；若專案因客戶因素暫停超過 30 天，專案將進入暫停狀態，重新啟動時需依當時開發排程重新安排（目前不自動收取重新啟動費）。
+        </div>
+      </div>
+
+      <div class="final-section">
+        <div class="final-section-title">16. 一次性專案開發說明</div>
+        <div style="font-size:12px;color:var(--ink-60);line-height:1.7">
+          本服務採<strong>一次性專案開發制</strong>，不收取強制年度維護費；網站完成並依約交付後，客戶可自行決定是否委託後續維護。一次性開發費包含：已確認 Scope 內之設計與開發、測試、基本 Deployment、約定之修改額度、30 天原功能 Bug 保固。一次性開發費不代表：終身免費維護、無限修改、無限新增功能、第三方服務永久免費，或未來 API 改版永久免費處理。
+        </div>
+      </div>
+    </div>
+
+    <div style="font-size:12px;color:var(--ink-30);text-align:center;margin-top:8px">
+      線上估價僅供初步預算參考；正式價格以需求訪談、Scope 確認及正式報價單為準。
+    </div>`;
+}
+
+// ══════════════════════════════════════════════════
+//  SUBMIT
+// ══════════════════════════════════════════════════
+async function submitQuote() {
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true;
+  btn.textContent = '送出中…';
+
+  const result = calcPrice();
+  const c   = state.contact;
+  const cfg = TYPE_CONFIG[state.type];
+
+  // ── 分類功能清單 ──────────────────────────────────
+  const includedNames  = [];
+  const selectedNames  = [];
+  const evalNames      = [];
+
+  Object.keys(FEATURES).forEach(g => {
+    FEATURES[g].forEach(item => {
+      if (!isSelected(g, item.id)) return;
+      if (item.evaluate)              { evalNames.push(item.name); return; }
+      if (item.free || item.price===0) return;
+      if (isIncluded(g, item.id))     includedNames.push(item.name);
+      else                            selectedNames.push(item.name);
+    });
+  });
+
+  // Requirement Snapshot：非 ecom 為 null（不寫入）
+  const reqSnapshot = isReqType() ? buildRequirementSnapshot() : null;
+
+  try {
+    // ① Quote ID：沿用 state.quoteId；若寫入被拒（最可能是 ID 已存在），換一個新的 ID 重試
+    let quoteId = state.quoteId;
+
+    // ② 寫入 Firestore
+    if (window._saveQuoteToFirestore) {
+      const quoteData = {
+        name:            c.name,
+        company:         c.company   || '',
+        email:           c.email,
+        phone:           c.phone     || '',
+        lineId:          c.line      || '',
+        projectType:     cfg ? cfg.name : '',
+        priceMin:        (result && !result.evaluate) ? result.minTotal : null,
+        priceMax:        (result && !result.evaluate) ? result.maxTotal : null,
+        priceMid:        (result && !result.evaluate) ? result.mid      : null,
+        priceRange:      (result && !result.evaluate)
+                           ? `NT$${result.minTotal.toLocaleString()} – NT$${result.maxTotal.toLocaleString()}`
+                           : '需評估',
+        duration:        (result && !result.evaluate)
+                           ? `${result.minDays}–${result.maxDays} 個工作天`
+                           : '依需求而定',
+        includedItems:   includedNames,
+        selectedItems:   selectedNames,
+        evaluationItems: evalNames,
+        message:         c.notes     || '',
+        budget:          c.budget    || '',
+        launchDate:      c.launch    || '',
+        complexityLevel: ({0:'標準',0.1:'中度客製',0.2:'高度客製'})[state.conds.complexity] || '標準',
+        complexityFeeMin: result && !result.evaluate ? result.complexityFeeMin : 0,
+        complexityFeeMax: result && !result.evaluate ? result.complexityFeeMax : 0,
+        isRush:          !!state.conds.timeline,
+        rushFeeMin:      result && !result.evaluate ? result.rushFeeMin : 0,
+        rushFeeMax:      result && !result.evaluate ? result.rushFeeMax : 0,
+        warrantyFee:     result && !result.evaluate ? result.warrantyFee : 0,
+        warrantyLabel:   state.conds.warrantyLabel,
+        revisionPolicy:  state.conds.revisionLabel,
+        maintenanceKey:  state.conds.maintKey,
+        maintenanceLabel:state.conds.maintLabel,
+        requiresManualReview: !!(result && !result.evaluate && result.requiresManualReview),
+        // 保存當時估價的完整組成快照，即使未來估價公式調整，舊報價紀錄仍可還原當時為什麼是這個價格
+        pricingBreakdown: {
+          type: state.type,
+          baseMin: result && !result.evaluate ? result.baseMin : null,
+          baseMax: result && !result.evaluate ? result.baseMax : null,
+          addonsMin: result ? (result.evaluate ? result.refMin : result.addMin) : null,
+          addonsMax: result ? (result.evaluate ? result.refMax : result.addMax) : null,
+          complexityLevel: ({0:'標準',0.1:'中度客製',0.2:'高度客製'})[state.conds.complexity] || '標準',
+          complexityFeeMin: result && !result.evaluate ? result.complexityFeeMin : 0,
+          complexityFeeMax: result && !result.evaluate ? result.complexityFeeMax : 0,
+          isRush: !!state.conds.timeline,
+          rushFeeMin: result && !result.evaluate ? result.rushFeeMin : 0,
+          rushFeeMax: result && !result.evaluate ? result.rushFeeMax : 0,
+          warrantyLabel: state.conds.warrantyLabel,
+          warrantyFee: result && !result.evaluate ? result.warrantyFee : 0,
+          revisionPolicy: state.conds.revisionLabel,
+          maintenanceKey: state.conds.maintKey,
+          maintenanceLabel: state.conds.maintLabel,
+          requiresManualReview: !!(result && !result.evaluate && result.requiresManualReview),
+          includedItems: includedNames,
+          selectedItems: selectedNames,
+          evaluationItems: evalNames,
+          minTotal: result && !result.evaluate ? result.minTotal : null,
+          maxTotal: result && !result.evaluate ? result.maxTotal : null,
+        },
+        // 客戶原始需求 Snapshot（僅 ecom）；與 includedItems / selectedItems / evaluationItems 並存
+        requirementSnapshot: reqSnapshot,
+      };
+      // 對已存在的文件寫入會被 Firestore Rules 拒絕（不會覆蓋既有案件）。
+      // 遇到 permission-denied 時重新產生 Quote ID 再試，最多 3 次，避免單次撞號讓使用者卡住。
+      const MAX_ATTEMPTS = 3;
+      for (let attempt = 1; ; attempt++) {
+        try {
+          await window._saveQuoteToFirestore(quoteId, quoteData);
+          break;
+        } catch (e) {
+          if (!(e && e.code === 'permission-denied') || attempt >= MAX_ATTEMPTS) throw e;
+          quoteId = genQid();
+        }
+      }
+      if (quoteId !== state.quoteId) {
+        state.quoteId = quoteId;
+        const chip = document.getElementById('quoteIdChip');
+        if (chip) chip.textContent = quoteId;
+      }
+    }
+
+    // ③ EmailJS：管理者通知 + 客戶確認
+    const params = {
+      to_email:      'nicoliu930226@gmail.com',
+      quote_id:      quoteId,
+      name:          c.name,
+      company:       c.company   || '—',
+      email:         c.email,
+      phone:         c.phone     || '—',
+      line_id:       c.line      || '—',
+      budget:        c.budget    || '不確定',
+      launch_date:   c.launch    || '—',
+      project_type:  cfg ? cfg.name : '—',
+      features_list: selectedNames.join('\n')  || '—',
+      eval_list:     evalNames.join('\n')       || '—',
+      price_mid:     (result && !result.evaluate) ? `NT$${result.mid.toLocaleString()}` : '需評估',
+      price_range:   (result && !result.evaluate)
+                       ? `NT$${result.minTotal.toLocaleString()} – NT$${result.maxTotal.toLocaleString()}`
+                       : '—',
+      duration:      (result && !result.evaluate)
+                       ? `${result.minDays}–${result.maxDays} 個工作天`
+                       : '依需求而定',
+      message:       c.notes || '無',
+      complexity:    ({0:'標準',0.1:'中度客製',0.2:'高度客製'})[state.conds.complexity] || '標準',
+      rush:          state.conds.timeline ? '是（+20%）' : '否',
+      warranty_fee:  (result && !result.evaluate) ? `NT$${result.warrantyFee.toLocaleString()}` : '—',
+      warranty_label: state.conds.warrantyLabel,
+      revision_policy: state.conds.revisionLabel,
+      maintenance:   isReqType() ? maintInterestLabel() : state.conds.maintLabel,
+      manual_review: (result && !result.evaluate && result.requiresManualReview) ? '是' : '否',
+      // 需求摘要純文字（EmailJS template 未使用此變數時會自動忽略）
+      requirements_summary: reqSnapshot ? NicocoRequirements.snapshotToText(reqSnapshot) : '—',
+      submit_date:   new Date().toLocaleDateString('zh-TW'),
+    };
+
+    emailjs.init(EJS_KEY);
+    await emailjs.send(EJS_SERVICE, EJS_TEMPLATE,       params); // 管理者
+    // 客戶確認信：單一入口模式下不顯示底層方案類型名稱（管理者通知信仍顯示實際類型）
+    await emailjs.send(EJS_SERVICE, 'template_p34lyxz',
+      singleEntryActive() ? { ...params, project_type: '網站需求書' } : params); // 客戶
+
+    // ④ 全部成功才顯示成功畫面
+    showSuccess();
+
+  } catch (err) {
+    const msg = String(err && err.message || err);
+    const detail = (err && err.code === 'permission-denied')
+      ? '系統暫時無法接收，請稍後再試一次；若持續發生請直接與我聯繫'
+      : (err && err.text ? err.text : msg);
+    showToast(`⚠ 送出失敗：${detail}`);
+    btn.disabled = false;
+    btn.textContent = '送出需求 →';
+  }
+}
+
+function showSuccess() {
+  document.querySelectorAll('[data-step]').forEach(s => s.style.display = 'none');
+  const ss = document.getElementById('successScreen');
+  ss.classList.add('show');
+  document.getElementById('successQid').textContent = `報價編號：${state.quoteId}`;
+}
+
+// ══════════════════════════════════════════════════
+//  DOWNLOAD HTML
+// ══════════════════════════════════════════════════
+function downloadHTML() {
+  const result = calcPrice();
+  const cfg = state.type ? TYPE_CONFIG[state.type] : null;
+  const c = state.contact;
+  const today = new Date().toLocaleDateString('zh-TW', {year:'numeric',month:'long',day:'numeric'});
+
+  const includedItems = [];
+  const allItems = [];
+  const evalItems = [];
+  Object.keys(FEATURES).forEach(g => {
+    FEATURES[g].forEach(item => {
+      if (!isSelected(g, item.id)) return;
+      if (item.evaluate)                        { evalItems.push(item); return; }
+      if (item.free || item.price === 0)         return;  // GA/GSC/firebase-base 等
+      if (isIncluded(g, item.id))               { includedItems.push(item); return; }
+      allItems.push(item);
+    });
+  });
+
+  const priceSection = (result && !result.evaluate && result.mid)
+    ? `<div style="background:#0f1117;color:#fff;border-radius:12px;padding:24px;text-align:center;margin:20px 0">
+        <div style="font-size:11px;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px">預估價格</div>
+        <div style="font-size:30px;font-weight:800;letter-spacing:-1px">NT$${result.mid.toLocaleString()}</div>
+        <div style="font-size:12px;color:rgba(255,255,255,.4);margin-top:4px">NT$${result.minTotal.toLocaleString()} – NT$${result.maxTotal.toLocaleString()}</div>
+        <div style="font-size:12px;color:rgba(255,255,255,.4);margin-top:6px">預估工期：${result.minDays}–${result.maxDays} 個工作天</div>
+        ${result.requiresManualReview ? `<div style="font-size:12px;color:#fde68a;margin-top:8px">⚠ 包含需人工評估項目；以上僅為目前可計價部分，不代表完整專案總價。</div>` : ''}
+       </div>`
+    : `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:20px;text-align:center;margin:20px 0;color:#92400e">
+        <div style="font-size:18px;font-weight:700;margin-bottom:6px">此專案需要專人評估</div>
+        <div style="font-size:13px">費用與工期因複雜度差異顯著，收到需求後將由專人聯繫。</div>
+        ${(result && result.addons && result.addons.length) ? `
+        <div style="font-size:13px;font-weight:700;margin-top:10px">目前所選功能之參考開發價值：NT$${result.refMin.toLocaleString()} – NT$${result.refMax.toLocaleString()}</div>
+        <div style="font-size:11px;margin-top:4px">此金額僅供初步預算參考，實際報價需依系統架構、功能複雜度、第三方服務與開發時程評估。</div>` : ''}
+       </div>`;
+
+  const html = `<!DOCTYPE html>
+<html lang="zh-TW"><head><meta charset="UTF-8">
+<title>網站需求書 ${state.quoteId}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,'PingFang TC',sans-serif;font-size:13px;color:#0f1117;background:#fff;padding:40px;max-width:720px;margin:0 auto}
+  h1{font-size:22px;font-weight:800;letter-spacing:-.5px;margin-bottom:4px}
+  .meta{font-size:12px;color:#9ca3af;margin-bottom:28px;display:flex;gap:20px}
+  .sec{margin-bottom:20px}
+  .sec-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#9ca3af;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #f0f1f4}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .box{padding:8px 12px;background:#f0f1f4;border-radius:6px}
+  .box-label{font-size:10px;color:#9ca3af;margin-bottom:2px}
+  .box-val{font-size:13px;font-weight:600}
+  .tags{display:flex;flex-wrap:wrap;gap:5px}
+  .tag{font-size:11px;padding:3px 9px;border-radius:20px;background:#f0f1f4;color:#60636e}
+  .tag.eval{background:#fffbeb;color:#d97706}
+  table{width:100%;border-collapse:collapse}
+  td{padding:7px 10px;border-bottom:1px solid #f0f1f4;font-size:12px}
+  td:last-child{text-align:right;color:#9ca3af;font-size:11px}
+  .footer{margin-top:32px;padding-top:14px;border-top:1px solid #f0f1f4;font-size:11px;color:#9ca3af;display:flex;justify-content:space-between}
+  .disc{background:#fffbeb;border-left:3px solid #f59e0b;padding:10px 14px;border-radius:0 6px 6px 0;font-size:12px;color:#92400e;margin-top:20px}
+</style>
+</head><body>
+  <h1>網站開發需求書</h1>
+  <div class="meta"><span>報價編號：${state.quoteId}</span><span>製作日期：${today}</span>${(cfg && !singleEntryActive())?`<span>類型：${cfg.name}</span>`:''}</div>
+
+  ${priceSection}
+
+  <div class="sec">
+    <div class="sec-title">客戶資訊</div>
+    <div class="grid">
+      ${c.name?`<div class="box"><div class="box-label">姓名</div><div class="box-val">${escapeHTML(c.name)}</div></div>`:''}
+      ${c.company?`<div class="box"><div class="box-label">公司</div><div class="box-val">${escapeHTML(c.company)}</div></div>`:''}
+      ${c.email?`<div class="box"><div class="box-label">Email</div><div class="box-val">${escapeHTML(c.email)}</div></div>`:''}
+      ${c.phone?`<div class="box"><div class="box-label">電話</div><div class="box-val">${escapeHTML(c.phone)}</div></div>`:''}
+      ${c.budget?`<div class="box"><div class="box-label">預算</div><div class="box-val">${escapeHTML(c.budget)}</div></div>`:''}
+      ${c.launch?`<div class="box"><div class="box-label">預計上線</div><div class="box-val">${escapeHTML(c.launch)}</div></div>`:''}
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-title">基礎建置（已含於方案費用）</div>
+    <div class="tags">
+      <span class="tag" style="background:#f0fdf4;color:#16a34a">✓ RWD 響應式</span>
+      <span class="tag" style="background:#f0fdf4;color:#16a34a">✓ 基礎 SEO</span>
+      <span class="tag" style="background:#f0fdf4;color:#16a34a">✓ SSL 憑證</span>
+      <span class="tag" style="background:#f0fdf4;color:#16a34a">✓ 基本網站部署</span>
+      <span class="tag" style="background:#f0fdf4;color:#16a34a">✓ 基本 DNS 指向</span>
+    </div>
+  </div>
+
+  ${isReqType() ? `
+  <div class="sec">
+    <div class="sec-title">需求摘要（要做什麼）</div>
+    ${NicocoRequirements.renderSnapshotHtml(buildRequirementSnapshot())}
+  </div>` : ''}
+
+  ${includedItems.length?`
+  <div class="sec">
+    <div class="sec-title">方案已包含（不另計費）</div>
+    <div class="tags">${includedItems.map(i=>`<span class="tag" style="background:#f0fdf4;color:#16a34a">✓ ${pubName(i.name)}</span>`).join('')}</div>
+  </div>`:''}
+
+  ${allItems.length?`
+  <div class="sec">
+    <div class="sec-title">加選功能明細（${allItems.length} 項）</div>
+    <table>
+      <tr><td style="color:#9ca3af">基礎建置費</td><td>${cfg&&cfg.priceMin?`NT$${cfg.priceMin.toLocaleString()} – NT$${cfg.priceMax.toLocaleString()}`:'依評估'}</td></tr>
+      ${allItems.map(i=>`<tr><td>${pubName(i.name)}</td><td>NT$${i.price.toLocaleString()} – NT$${itemHigh(i).toLocaleString()}</td></tr>`).join('')}
+    </table>
+  </div>`:''}
+
+  ${(result && !result.evaluate && (result.complexityFeeMin || result.complexityFeeMax)) ? `
+  <div class="sec">
+    <div class="sec-title">專案複雜度調整</div>
+    <table><tr><td>${{0.10:'中度客製',0.20:'高度客製'}[state.conds.complexity] || '客製調整'}</td><td>+NT$${result.complexityFeeMin.toLocaleString()} – NT$${result.complexityFeeMax.toLocaleString()}</td></tr></table>
+  </div>`:''}
+
+  ${(result && !result.evaluate && (result.rushFeeMin || result.rushFeeMax)) ? `
+  <div class="sec">
+    <div class="sec-title">急件調整</div>
+    <table><tr><td>急件（+20%）</td><td>+NT$${result.rushFeeMin.toLocaleString()} – NT$${result.rushFeeMax.toLocaleString()}</td></tr></table>
+  </div>`:''}
+
+  ${(result && !result.evaluate && result.warrantyFee) ? `
+  <div class="sec">
+    <div class="sec-title">保固延長</div>
+    <table><tr><td>${state.conds.warrantyLabel || '延長原功能 Bug 保固'}</td><td>+NT$${result.warrantyFee.toLocaleString()}</td></tr></table>
+  </div>`:''}
+
+  ${evalItems.length?`
+  <div class="sec">
+    <div class="sec-title">需評估項目（${evalItems.length} 項）</div>
+    <div class="tags">${evalItems.map(i=>`<span class="tag eval">◆ ${pubName(i.name)}</span>`).join('')}</div>
+  </div>`:''}
+
+  ${c.notes?`<div class="sec"><div class="sec-title">補充說明</div><div style="color:#60636e;line-height:1.6">${escapeHTML(c.notes)}</div></div>`:''}
+
+  ${isReqType() ? `
+  <div class="sec">
+    <div class="sec-title">修改說明</div>
+    <div style="font-size:12px;color:#60636e">${REQ_REVISION_TEXT}</div>
+  </div>
+  <div class="sec">
+    <div class="sec-title">後續維護服務</div>
+    <div style="font-size:12px;color:#60636e">${maintInterestLabel()}（僅記錄意願，不計入本次開發估價）</div>
+  </div>` : `
+  <div class="sec">
+    <div class="sec-title">修改次數</div>
+    <div style="font-size:12px;color:#60636e">${state.conds.revisionLabel}。超出修改次數或原確認 Scope 的需求，將依實際內容另行評估及報價。</div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-title">選配維護費</div>
+    <div style="font-size:12px;color:#60636e">
+      ${state.conds.maintKey && state.conds.maintKey !== 'none'
+        ? `${state.conds.maintLabel}（${{hourly:'NT$800–1,500/hr', basic:'NT$2,000–5,000/月', advanced:'NT$5,000–10,000+/月'}[state.conds.maintKey]}），不列入本次開發總價，為選配持續性服務。`
+        : '未選擇維護方案。'}
+    </div>
+  </div>`}
+
+  <div class="sec">
+    <div class="sec-title">第三方服務費（客戶自行負擔）</div>
+    <div style="font-size:12px;color:#60636e;line-height:1.6">網域、主機、資料庫、金流手續費、Email、簡訊及其他第三方服務所產生之費用，由客戶依實際使用方案自行負擔，不包含於本開發估價。</div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-title">合作流程與付款方式</div>
+    <div style="font-size:12px;color:#60636e;line-height:1.7">
+      本文件所列金額為線上初步估價，不等同正式成交金額。合作流程：線上初估 → 客戶送出需求 → 人工確認需求 → 確認 Scope → 產生正式報價 → 客戶確認 → 選擇付款方式 → 收到約定啟動款 → 開始正式開發。原則上收到約定啟動款後才開始開發，不提供「0 元開始、完成後才支付全部款項」的模式。
+    </div>
+    <table style="margin-top:8px">
+      <tr><td style="font-weight:600">一次付款</td><td>100%，正式報價與 Scope 確認後支付，開始開發</td></tr>
+      <tr><td style="font-weight:600">兩期付款（推薦）</td><td>50% 啟動款＋50% 尾款；驗收與必要修正完成後支付尾款，Production 上線／交付</td></tr>
+      <tr><td style="font-weight:600">三期付款</td><td>40% 啟動款＋30% 中期款（達成中期里程碑）＋30% 尾款（驗收完成後）</td></tr>
+    </table>
+    <div style="font-size:11px;color:#9ca3af;margin-top:6px">付款里程碑以開發階段為依據；若因金流正式環境驗證、正式 DNS／Email DNS（SPF/DKIM/DMARC）等須在正式環境測試之項目，可先進行必要之技術性 Production 測試，完整交付與結案仍以尾款完成為原則。</div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-title">需求變更與追加報價（Change Request）</div>
+    <div style="font-size:12px;color:#60636e;line-height:1.7">
+      A．原範圍內小幅修改（文案/圖片/字體間距/小幅 Layout）：使用方案內含修改額度（2 次）。<br>
+      B．超過修改額度但未變更 Scope：依實際內容另行評估及報價。<br>
+      C．追加需求／Scope Change（大幅設計重做、新增頁面/會員功能/Login/第三方 API/預約系統/金流/CMS、商品架構重大修改等）：需重新評估工時與費用，經確認後執行。<br>
+      追加報價付款原則：NT$10,000 以下原則上併入下一期款項或尾款；超過 NT$10,000 原則上 50% 追加啟動款＋50% 併入下一期款項或最終尾款。
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-title">驗收與交付</div>
+    <div style="font-size:12px;color:#60636e;line-height:1.7">客戶收到驗收通知後，原則上於 14 天內確認 Scope 內功能並提出必要修正；新增功能或重大設計變更視為需求變更（Change Request）。若超過驗收期間未回覆，專案將進入待交付狀態，後續時程依當時排程重新安排。</div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-title">客戶提供資料與專案時程</div>
+    <div style="font-size:12px;color:#60636e;line-height:1.7">若因客戶未能提供必要文案、圖片、商品資料、帳號、API Credentials、金流資料、網域資訊或其他確認事項導致專案無法繼續，時程將順延；因客戶因素暫停超過 30 天將進入暫停狀態，重新啟動需依當時排程重新安排（目前不自動收取重新啟動費）。</div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-title">一次性專案開發說明</div>
+    <div style="font-size:12px;color:#60636e;line-height:1.7">本服務採一次性專案開發制，不收取強制年度維護費。一次性開發費包含：已確認 Scope 內設計與開發、測試、基本 Deployment、約定修改額度、30 天原功能 Bug 保固。不代表：終身免費維護、無限修改、無限新增功能、第三方服務永久免費，或未來 API 改版永久免費處理。</div>
+  </div>
+
+  <div class="disc">⚠ 本估價單為系統自動初步估算，僅供預算參考。正式價格以需求訪談、Scope 確認及正式報價單為準。</div>
+  <div class="footer"><span>${state.quoteId}</span><span>網站開發估價系統自動產生</span></div>
+</body></html>`;
+
+  const blob = new Blob([html], {type:'text/html'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `網站需求書_${state.quoteId}.html`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ══════════════════════════════════════════════════
+//  TOAST
+// ══════════════════════════════════════════════════
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3200);
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>正式報價單</title>
+
+<!-- Firebase SDK (compat) — read + update only, no auth required for this page -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script>
+const FB_CONFIG = {
+  apiKey:            'AIzaSyD7LyLGlpY-FiSnEIzfwolg0aJCfDmlHwY',
+  authDomain:        'webproject-3914c.firebaseapp.com',
+  projectId:         'webproject-3914c',
+  storageBucket:     'webproject-3914c.firebasestorage.app',
+  messagingSenderId: '266695680346',
+  appId:             '1:266695680346:web:022b22dfa5d12f61df9363',
+};
+firebase.initializeApp(FB_CONFIG);
+const db = firebase.firestore();
+</script>
+
+<style>
+/* ── Reset & Tokens ──────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --ink:    #0f1117; --ink-60: #60636e; --ink-30: #b8bac4; --ink-10: #f0f1f4;
+  --white:  #ffffff;
+  --accent: #2563eb; --accent-light: #eff6ff;
+  --green:  #16a34a; --green-light:  #f0fdf4;
+  --amber:  #d97706; --amber-light:  #fffbeb;
+  --red:    #dc2626; --red-light:    #fef2f2;
+
+  --r-sm: 6px; --r: 10px; --r-lg: 16px; --r-xl: 20px;
+  --shadow-sm: 0 1px 4px rgba(15,17,23,.06);
+  --shadow:    0 4px 16px rgba(15,17,23,.08);
+  --shadow-lg: 0 20px 60px rgba(15,17,23,.10);
+
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'PingFang TC', sans-serif;
+  --mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  --ease: cubic-bezier(.25,.46,.45,.94); --t: 160ms;
+}
+
+html { scroll-behavior: smooth; }
+body {
+  font-family: var(--font); font-size: 14px; color: var(--ink);
+  background: var(--ink-10); -webkit-font-smoothing: antialiased; min-height: 100vh;
+}
+
+/* ── Header ─────────────────────────────────────────────────── */
+.header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 40px; height: 60px;
+  background: var(--white); border-bottom: 1px solid var(--ink-10);
+}
+.header-logo {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 14px; font-weight: 700; color: var(--ink); letter-spacing: -.2px;
+}
+.header-logo-mark {
+  width: 30px; height: 30px; background: var(--ink); border-radius: var(--r-sm);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 13px; font-weight: 800;
+}
+.header-tagline { font-size: 12px; color: var(--ink-30); }
+.btn-pdf {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 16px; border-radius: var(--r-sm);
+  background: var(--ink); color: #fff; border: none;
+  font-size: 12px; font-weight: 600; cursor: pointer;
+  font-family: var(--font); transition: background var(--t), opacity var(--t);
+  opacity: .35;
+}
+.btn-pdf:hover:not(:disabled) { background: #2a2d38; }
+.btn-pdf:disabled { cursor: not-allowed; }
+
+/* ── Layout ─────────────────────────────────────────────────── */
+.wrap {
+  max-width: 780px; margin: 0 auto;
+  padding: 40px 24px 100px;
+}
+
+/* ── Document card ───────────────────────────────────────────── */
+.doc-card {
+  background: var(--white); border: 1px solid var(--ink-10);
+  border-radius: var(--r-xl); overflow: hidden;
+  box-shadow: var(--shadow);
+}
+
+/* ── Doc top band ────────────────────────────────────────────── */
+.doc-band {
+  background: var(--ink); padding: 28px 32px; color: #fff;
+  display: flex; justify-content: space-between; align-items: flex-start;
+  flex-wrap: wrap; gap: 16px;
+}
+.doc-brand { font-size: 13px; font-weight: 600; color: rgba(255,255,255,.5); margin-bottom: 6px; }
+.doc-title { font-size: 26px; font-weight: 800; letter-spacing: -.8px; }
+.doc-qid   { font-family: var(--mono); font-size: 12px; color: rgba(255,255,255,.4); margin-top: 4px; }
+.doc-status-block { text-align: right; padding-top: 4px; }
+.status-badge {
+  display: inline-block; font-size: 12px; font-weight: 700;
+  padding: 6px 16px; border-radius: 20px; letter-spacing: .02em;
+}
+.sb-draft    { background: rgba(255,255,255,.12); color: rgba(255,255,255,.7); }
+.sb-sent     { background: var(--accent-light); color: var(--accent); }
+.sb-accepted { background: var(--green-light);  color: var(--green); }
+.sb-rejected { background: var(--red-light);    color: var(--red); }
+
+/* ── Doc meta grid ───────────────────────────────────────────── */
+.doc-meta {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 0; border-bottom: 1px solid var(--ink-10);
+}
+.meta-block {
+  padding: 20px 32px; border-right: 1px solid var(--ink-10);
+}
+.meta-block:nth-child(even) { border-right: none; }
+.meta-block:nth-child(n+3)  { border-top: 1px solid var(--ink-10); }
+.meta-label {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--ink-30); margin-bottom: 5px;
+}
+.meta-value { font-size: 14px; font-weight: 500; color: var(--ink); line-height: 1.5; }
+.meta-value.mono { font-family: var(--mono); font-size: 13px; }
+.meta-value.expired { color: var(--red); }
+
+/* ── Items table ─────────────────────────────────────────────── */
+.items-section { padding: 28px 32px; border-bottom: 1px solid var(--ink-10); }
+.items-title {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--ink-30); margin-bottom: 16px;
+}
+.items-table { width: 100%; border-collapse: collapse; }
+.items-table thead th {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--ink-30); text-align: left; padding: 0 10px 10px;
+  border-bottom: 1.5px solid var(--ink-10);
+}
+.items-table thead th.r { text-align: right; }
+.items-table tbody td {
+  padding: 12px 10px; border-bottom: 1px solid var(--ink-10);
+  vertical-align: top; font-size: 13px;
+}
+.items-table tbody tr:last-child td { border-bottom: none; }
+.item-name { font-weight: 600; color: var(--ink); margin-bottom: 3px; }
+.item-desc { font-size: 12px; color: var(--ink-60); line-height: 1.5; }
+.item-num  { text-align: right; color: var(--ink-60); font-variant-numeric: tabular-nums; }
+.item-subtotal { text-align: right; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* ── Totals ──────────────────────────────────────────────────── */
+.totals-section { padding: 20px 32px; border-bottom: 1px solid var(--ink-10); }
+.totals-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 7px 0; font-size: 13px;
+}
+.totals-row .t-label { color: var(--ink-60); }
+.totals-row .t-value { font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
+.totals-row .t-value.discount { color: var(--green); }
+.totals-divider { height: 1px; background: var(--ink-10); margin: 8px 0; }
+.totals-grand {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 10px 0 0;
+}
+.totals-grand .tg-label { font-size: 15px; font-weight: 700; color: var(--ink); }
+.totals-grand .tg-value {
+  font-size: 28px; font-weight: 800; color: var(--ink);
+  letter-spacing: -1px; font-variant-numeric: tabular-nums;
+}
+
+/* ── Note ────────────────────────────────────────────────────── */
+.note-section { padding: 20px 32px; border-bottom: 1px solid var(--ink-10); }
+.note-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-30); margin-bottom: 8px; }
+.note-text  { font-size: 13px; color: var(--ink-60); line-height: 1.7; white-space: pre-wrap; }
+
+/* ── Action section ──────────────────────────────────────────── */
+.action-section { padding: 28px 32px; }
+.action-title {
+  font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 6px;
+}
+.action-sub { font-size: 12px; color: var(--ink-60); margin-bottom: 20px; line-height: 1.6; }
+.action-btns { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.btn-accept {
+  flex: 1; min-width: 140px; padding: 14px 24px; border-radius: var(--r);
+  background: var(--ink); color: #fff; border: none;
+  font-size: 14px; font-weight: 600; font-family: var(--font);
+  cursor: pointer; transition: background var(--t);
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.btn-accept:hover:not(:disabled) { background: #2a2d38; }
+
+.btn-reject {
+  flex: 1; min-width: 140px; padding: 14px 24px; border-radius: var(--r);
+  background: var(--white); color: var(--ink-60);
+  border: 1.5px solid var(--ink-10); font-size: 14px; font-weight: 500; font-family: var(--font);
+  cursor: pointer; transition: all var(--t);
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.btn-reject:hover:not(:disabled) { border-color: var(--red); color: var(--red); }
+
+.btn-accept:disabled,
+.btn-reject:disabled { opacity: 1; cursor: not-allowed; }
+.btn-accepted { background: var(--green) !important; }
+.btn-rejected { background: var(--red-light) !important; color: var(--red) !important; border-color: #fca5a5 !important; }
+
+/* status result banner */
+.result-banner {
+  border-radius: var(--r); padding: 14px 18px;
+  font-size: 13px; font-weight: 500; line-height: 1.5;
+  display: none; margin-top: 16px;
+}
+.result-banner.accepted { display: flex; gap: 10px; background: var(--green-light); color: var(--green); border: 1px solid #bbf7d0; }
+.result-banner.rejected { display: flex; gap: 10px; background: var(--red-light);   color: var(--red);   border: 1px solid #fca5a5; }
+.result-banner.processing { display: flex; gap: 10px; background: var(--ink-10); color: var(--ink-60); border: 1px solid var(--ink-10); }
+
+/* ── Footer ──────────────────────────────────────────────────── */
+.doc-footer {
+  padding: 18px 32px; background: var(--ink-10);
+  display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;
+}
+.doc-footer-left  { font-size: 11px; color: var(--ink-30); }
+.doc-footer-right { font-size: 11px; color: var(--ink-30); font-family: var(--mono); }
+
+/* ── PDF Logo（doc-band 內，螢幕與列印都顯示）──────────── */
+.pdf-logo-row {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
+}
+.pdf-logo-mark {
+  width: 30px; height: 30px; border-radius: 6px;
+  background: rgba(255,255,255,.15); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 800; flex-shrink: 0;
+}
+.pdf-studio-name { font-size: 13px; font-weight: 700; color: rgba(255,255,255,.8); }
+
+/* ── Loading / Error ─────────────────────────────────────────── */
+.loading-state { text-align: center; padding: 100px 0; color: var(--ink-30); font-size: 14px; }
+.loading-state .spinner {
+  width: 28px; height: 28px; border: 2.5px solid var(--ink-10); border-top-color: var(--ink);
+  border-radius: 50%; margin: 0 auto 16px; animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.error-state { text-align: center; padding: 100px 0; color: var(--ink-60); font-size: 14px; }
+
+/* ── Toast ───────────────────────────────────────────────────── */
+.toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(16px);
+  background: var(--ink); color: #fff; font-size: 13px;
+  padding: 11px 22px; border-radius: var(--r); white-space: nowrap;
+  opacity: 0; pointer-events: none; transition: all .25s var(--ease); z-index: 999;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ── RWD ─────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .header { padding: 0 20px; }
+  .wrap { padding: 24px 16px 80px; }
+  .doc-band { padding: 22px 20px; }
+  .doc-meta { grid-template-columns: 1fr; }
+  .meta-block { border-right: none !important; }
+  .meta-block:nth-child(n+2) { border-top: 1px solid var(--ink-10); }
+  .items-section, .totals-section, .note-section, .action-section { padding: 20px; }
+  .items-table thead { display: none; }
+  .items-table, .items-table tbody, .items-table tr, .items-table td { display: block; width: 100%; }
+  .items-table tbody tr { border-bottom: 1px solid var(--ink-10); padding: 12px 0; }
+  .items-table tbody td { border-bottom: none; padding: 3px 0; }
+  .item-num, .item-subtotal { text-align: left; }
+  .doc-footer { flex-direction: column; align-items: flex-start; gap: 4px; }
+}
+
+/* ── Contact / Bank info ─────────────────────────────────────── */
+.contact-section, .bank-section {
+  padding: 18px 32px; border-top: 1px solid var(--ink-10);
+}
+.info-section-label {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--ink-30); margin-bottom: 10px;
+}
+.contact-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px 24px;
+}
+.contact-item { font-size: 12px; color: var(--ink-60); display: flex; gap: 6px; }
+.contact-item-label { color: var(--ink-30); flex-shrink: 0; min-width: 36px; }
+.contact-item a { color: var(--accent); text-decoration: none; }
+.contact-item a:hover { text-decoration: underline; }
+.bank-text { font-size: 12px; color: var(--ink-60); line-height: 1.7; white-space: pre-wrap; }
+
+@media print {
+  /* ── 頁面尺寸與邊界 ──────────────────────────────────── */
+  @page {
+    size: A4 portrait;
+    margin: 14mm 16mm 14mm 16mm;
+  }
+
+  /* ── 隱藏非列印元素 ─────────────────────────────────── */
+  .header,
+  .action-section,
+  .toast,
+  .btn-pdf { display: none !important; }
+
+  /* ── 基礎重設 ────────────────────────────────────────── */
+  html, body {
+    background: #fff !important;
+    font-size: 11pt;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* ── 版面 ────────────────────────────────────────────── */
+  .wrap {
+    padding: 0 !important;
+    max-width: 100% !important;
+  }
+  .doc-card {
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+  }
+
+  /* ── 頂部 band 顏色保留 ───────────────────────────────── */
+  .doc-band {
+    background: #0f1117 !important;
+    color: #fff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    padding: 18px 24px !important;
+  }
+  .doc-title { font-size: 20pt !important; }
+  .doc-brand, .doc-qid { color: rgba(255,255,255,.55) !important; }
+
+  /* ── Meta grid ───────────────────────────────────────── */
+  .doc-meta { page-break-inside: avoid; break-inside: avoid; }
+  .meta-block { padding: 12px 24px !important; }
+  .meta-value { font-size: 11pt !important; }
+
+  /* ── Items table — 防跨頁 ────────────────────────────── */
+  .items-section { padding: 16px 24px !important; }
+  .items-table { page-break-inside: auto; }
+  .items-table thead { display: table-header-group; }   /* 跨頁重複表頭 */
+  .items-table tbody tr {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .items-table td { font-size: 10pt !important; padding: 8px 8px !important; }
+  .items-table th { font-size: 9pt !important; }
+  .item-desc { font-size: 9pt !important; }
+
+  /* ── Totals — 整塊不跨頁 ─────────────────────────────── */
+  .totals-section {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    padding: 14px 24px !important;
+  }
+  .totals-grand .tg-value { font-size: 20pt !important; }
+
+  /* ── Note / Contact / Bank — 盡量不跨頁 ─────────────── */
+  .note-section,
+  .contact-section,
+  .bank-section {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    padding: 12px 24px !important;
+  }
+
+  /* ── Footer — 固定在最後，不跨頁 ────────────────────── */
+  .doc-footer {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    margin-top: auto;
+    padding: 12px 24px !important;
+    background: #f0f1f4 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* ── 連結顏色 ─────────────────────────────────────────── */
+  a { color: inherit !important; text-decoration: none !important; }
+  .contact-item a { color: #2563eb !important; }
+}
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-logo">
+    <div class="header-logo-mark" id="headerLogoMark">W</div>
+    <span id="headerStudioName">Website Studio</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:14px">
+    <div class="header-tagline">正式報價單</div>
+    <button class="btn-pdf" id="btnPdf" onclick="downloadPDF()" disabled>⬇ 下載 PDF</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="loading-state" id="loadingState">
+    <div class="spinner"></div>
+    載入報價單中…
+  </div>
+  <div id="docRoot"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════
+//  CONFIG
+// ══════════════════════════════════════════════════
+const QSTATUS_LABELS = {
+  draft:    '草稿',
+  sent:     '已送出報價',
+  accepted: '已接受',
+  rejected: '已拒絕',
+};
+const QSTATUS_BADGE = {
+  draft:    'sb-draft',
+  sent:     'sb-sent',
+  accepted: 'sb-accepted',
+  rejected: 'sb-rejected',
+};
+
+// ══════════════════════════════════════════════════
+//  HELPERS
+// ══════════════════════════════════════════════════
+function escapeHtml(str) {
+  return String(str ?? '').replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+function escapeAttr(str) {
+  return String(str ?? '').replace(/"/g, '&quot;');
+}
+function fmtMoney(n) {
+  const num = Number(n || 0);
+  return `NT$${num.toLocaleString()}`;
+}
+function fmtDate(ts) {
+  if (!ts) return '—';
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  return d.toLocaleDateString('zh-TW', { year:'numeric', month:'long', day:'numeric' });
+}
+function isExpired(ts) {
+  if (!ts) return false;
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  return d < new Date();
+}
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3200);
+}
+
+// ══════════════════════════════════════════════════
+//  LOAD
+// ══════════════════════════════════════════════════
+let currentId    = null;
+let currentData  = null;
+let currentToken = null;
+let currentStudio = null;
+
+const STUDIO_DEFAULTS = {
+  studioName:      'Website Studio',
+  displayName:     'Website CRM',
+  logoText:        'W',
+  contactEmail:    'nicoliu930226@gmail.com',
+  phone:           '',
+  lineId:          '',
+  websiteUrl:      '',
+  quotationFooter: '本報價單由 Website Studio 提供，如有疑問請直接聯繫業務。',
+  bankInfo:        '',
+  taxId:           '',
+  address:         '',
+};
+
+// ── Security v1：只讀取 publicQuotations/{clientToken}（客戶公開投影）──
+// 不再用 Quote ID 讀取內部案件 quotes/{quoteId}，也不再「先下載整份再用 JS 比對 token」。
+// 文件 ID 本身就是 128-bit token：token 不正確時根本取不到任何資料。
+const INVALID_LINK_MSG = '連結無效或已失效。請向業務人員索取最新的報價連結。';
+
+async function loadQuotation() {
+  const params = new URLSearchParams(window.location.search);
+  // 新連結格式：quotation.html?t=<token>。舊格式（?id=…&token=…）的 token 已全面失效，查不到資料會顯示無效連結。
+  currentToken = params.get('t') || params.get('token');
+
+  if (!currentToken || !/^[a-f0-9]{32}$/.test(currentToken)) {
+    showError(INVALID_LINK_MSG);
+    return;
+  }
+
+  try {
+    const snap = await db.collection('publicQuotations').doc(currentToken).get();
+    if (!snap.exists) {
+      showError(INVALID_LINK_MSG);
+      return;
+    }
+    const pub = snap.data();
+
+    if (!pub.quotationItems || pub.quotationItems.length === 0) {
+      showError('此案件尚未建立正式報價項目，請等待業務人員準備完成後再查看。');
+      return;
+    }
+
+    // 轉成既有 renderQuotation() 使用的欄位名稱（畫面程式不需要知道資料來源改了）
+    currentId   = pub.quoteId;
+    currentData = {
+      ...pub,
+      name: pub.clientName,
+      company: pub.clientCompany,
+      projectType: pub.projectDisplayName,
+      quotationUpdatedAt: pub.issuedAt,
+    };
+    // 工作室顯示資料來自投影（settings/studio 已改為 Admin-only）；空值沿用預設
+    currentStudio = { ...STUDIO_DEFAULTS };
+    Object.keys(pub.studio || {}).forEach(k => { if (pub.studio[k]) currentStudio[k] = pub.studio[k]; });
+
+    // 套用 Header（logoText + studioName）
+    const markEl = document.getElementById('headerLogoMark');
+    const nameEl = document.getElementById('headerStudioName');
+    if (markEl) markEl.textContent = currentStudio.logoText || 'W';
+    if (nameEl) nameEl.textContent = currentStudio.studioName || 'Website Studio';
+    document.title = `報價單 ${currentData.quoteId || currentId} — ${currentStudio.studioName || 'Website Studio'}`;
+
+    document.getElementById('loadingState').style.display = 'none';
+    renderQuotation(currentData);
+
+    // 資料載入完成後才啟用 PDF 按鈕
+    const pdfBtn = document.getElementById('btnPdf');
+    if (pdfBtn) { pdfBtn.disabled = false; pdfBtn.style.opacity = '1'; }
+  } catch (err) {
+    console.error(err);
+    // 權限錯誤與查無資料對客戶一律顯示相同訊息
+    showError(err && err.code === 'permission-denied' ? INVALID_LINK_MSG : `讀取失敗：${err.message || String(err)}`);
+  }
+}
+
+function showError(msg) {
+  document.getElementById('loadingState').style.display = 'none';
+  document.getElementById('docRoot').innerHTML =
+    `<div class="error-state">⚠ ${escapeHtml(msg)}</div>`;
+}
+
+// ══════════════════════════════════════════════════
+//  RENDER
+// ══════════════════════════════════════════════════
+function renderQuotation(q) {
+  const items    = q.quotationItems || [];
+  const subtotal = Number(q.quotationSubtotal || 0);
+  const discount = Number(q.quotationDiscount || 0);
+  const tax      = Number(q.quotationTax || 0);
+  const total    = Number(q.quotationTotal || subtotal - discount + tax);
+  const status   = q.quotationStatus || 'draft';
+  const isLocked = status === 'accepted' || status === 'rejected';
+  const expired  = isExpired(q.validUntil);
+  const today    = new Date().toLocaleDateString('zh-TW', { year:'numeric', month:'long', day:'numeric' });
+
+  document.title = `報價單 ${q.quoteId || currentId} — ${currentStudio ? currentStudio.studioName : 'Website Studio'}`;
+
+  document.getElementById('docRoot').innerHTML = `
+    <div class="doc-card">
+
+      <!-- Top band -->
+      <div class="doc-band">
+        <div>
+          <div class="pdf-logo-row">
+            <div class="pdf-logo-mark">${escapeHtml((currentStudio && currentStudio.logoText) || 'W')}</div>
+            <div class="pdf-studio-name">${escapeHtml((currentStudio && currentStudio.studioName) || 'Website Studio')}</div>
+          </div>
+          <div class="doc-brand">正式報價單</div>
+          <div class="doc-title">${escapeHtml(q.name || '—')}${q.company ? `<span style="font-size:16px;font-weight:500;opacity:.6"> ／ ${escapeHtml(q.company)}</span>` : ''}</div>
+          <div class="doc-qid">${escapeHtml(q.quoteId || currentId)}</div>
+        </div>
+        <div class="doc-status-block">
+          <span class="status-badge ${QSTATUS_BADGE[status] || 'sb-draft'}" id="statusBadge">
+            ${QSTATUS_LABELS[status] || status}
+          </span>
+        </div>
+      </div>
+
+      <!-- Meta grid -->
+      <div class="doc-meta">
+        <div class="meta-block">
+          <div class="meta-label">專案類型</div>
+          <div class="meta-value">${escapeHtml(q.projectType || '—')}</div>
+        </div>
+        <div class="meta-block">
+          <div class="meta-label">建立日期</div>
+          <div class="meta-value">${fmtDate(q.quotationUpdatedAt || q.createdAt)}</div>
+        </div>
+        <div class="meta-block">
+          <div class="meta-label">報價有效期限</div>
+          <div class="meta-value${expired ? ' expired' : ''}">
+            ${q.validUntil ? fmtDate(q.validUntil) + (expired ? '（已過期）' : '') : '—'}
+          </div>
+        </div>
+        <div class="meta-block">
+          <div class="meta-label">付款條件</div>
+          <div class="meta-value">${escapeHtml(q.paymentTerms || '—')}</div>
+        </div>
+      </div>
+
+      <!-- Items table -->
+      <div class="items-section">
+        <div class="items-title">報價項目</div>
+        <table class="items-table">
+          <thead>
+            <tr>
+              <th style="width:40%">項目</th>
+              <th>說明</th>
+              <th class="r" style="width:7%">數量</th>
+              <th class="r" style="width:13%">單價</th>
+              <th class="r" style="width:13%">小計</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items.map(item => `
+              <tr>
+                <td><div class="item-name">${escapeHtml(item.name || '—')}</div></td>
+                <td><div class="item-desc">${escapeHtml(item.description || '')}</div></td>
+                <td class="item-num">${Number(item.qty || 0).toLocaleString()}</td>
+                <td class="item-num">${item.pricingPending ? '待報價' : fmtMoney(item.unitPrice)}</td>
+                <td class="item-subtotal">${item.pricingPending ? '待報價' : fmtMoney(item.subtotal)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Totals -->
+      <div class="totals-section">
+        <div class="totals-row">
+          <span class="t-label">Subtotal</span>
+          <span class="t-value">${fmtMoney(subtotal)}</span>
+        </div>
+        ${discount > 0 ? `
+        <div class="totals-row">
+          <span class="t-label">Discount</span>
+          <span class="t-value discount">−${fmtMoney(discount)}</span>
+        </div>` : ''}
+        ${tax > 0 ? `
+        <div class="totals-row">
+          <span class="t-label">Tax</span>
+          <span class="t-value">${fmtMoney(tax)}</span>
+        </div>` : ''}
+        <div class="totals-divider"></div>
+        <div class="totals-grand">
+          <span class="tg-label">Total</span>
+          <span class="tg-value">${fmtMoney(total)}</span>
+        </div>
+      </div>
+
+      ${q.quotationNote ? `
+      <!-- Note -->
+      <div class="note-section">
+        <div class="note-label">備註</div>
+        <div class="note-text">${escapeHtml(q.quotationNote)}</div>
+      </div>` : ''}
+
+      <!-- Action -->
+      <div class="action-section">
+        ${isLocked
+          ? renderLockedAction(status)
+          : status !== 'sent'
+            ? `<div class="action-title">報價準備中</div>
+               <div class="action-sub">此報價尚未正式送出，目前僅供預覽。正式送出後即可在此頁面確認。</div>`
+            : renderActionButtons(expired)}
+      </div>
+
+      ${renderContactSection()}
+      ${renderBankSection(q)}
+
+      <!-- Footer -->
+      <div class="doc-footer">
+        <span class="doc-footer-left">${escapeHtml(currentStudio ? currentStudio.quotationFooter : '本報價單由 Website Studio 提供，如有疑問請直接聯繫業務。')}</span>
+        <span class="doc-footer-right">${escapeHtml(q.quoteId || currentId)}</span>
+      </div>
+
+    </div>`;
+}
+
+// ── 聯絡資訊區塊 ────────────────────────────────────────────────
+function renderContactSection() {
+  if (!currentStudio) return '';
+  const { contactEmail, phone, lineId, websiteUrl } = currentStudio;
+  const rows = [
+    contactEmail ? `<div class="contact-item"><span class="contact-item-label">Email</span><a href="mailto:${escapeAttr(contactEmail)}">${escapeHtml(contactEmail)}</a></div>` : '',
+    phone        ? `<div class="contact-item"><span class="contact-item-label">電話</span>${escapeHtml(phone)}</div>` : '',
+    lineId       ? `<div class="contact-item"><span class="contact-item-label">LINE</span>${escapeHtml(lineId)}</div>` : '',
+    websiteUrl   ? `<div class="contact-item"><span class="contact-item-label">網站</span><a href="${escapeAttr(websiteUrl)}" target="_blank">${escapeHtml(websiteUrl)}</a></div>` : '',
+  ].filter(Boolean);
+  if (rows.length === 0) return '';
+  return `
+    <div class="contact-section">
+      <div class="info-section-label">聯絡資訊</div>
+      <div class="contact-grid">${rows.join('')}</div>
+    </div>`;
+}
+
+// ── 匯款資訊區塊 ────────────────────────────────────────────────
+function renderBankSection(q) {
+  const bankInfo = currentStudio && currentStudio.bankInfo;
+  if (!bankInfo) return '';
+  return `
+    <div class="bank-section">
+      <div class="info-section-label">匯款資訊</div>
+      <div class="bank-text">${escapeHtml(bankInfo)}</div>
+    </div>`;
+}
+
+// ══════════════════════════════════════════════════
+//  PDF DOWNLOAD
+// ══════════════════════════════════════════════════
+function downloadPDF() {
+  const q         = currentData;
+  const qid       = (q && (q.quoteId || currentId)) || 'quotation';
+  const origTitle = document.title;
+
+  document.title = `Quotation_${qid}`;
+
+  const restoreTitle = () => {
+    document.title = origTitle;
+    window.removeEventListener('afterprint', restoreTitle);
+  };
+
+  window.addEventListener('afterprint', restoreTitle);
+  window.print();
+}
+
+function renderActionButtons(expired) {
+  if (expired) {
+    return `
+      <div class="action-title">此報價單已過有效期限</div>
+      <div class="action-sub">如需重新報價，請聯繫業務人員。</div>`;
+  }
+  return `
+    <div class="action-title">確認此份報價單</div>
+    <div class="action-sub">
+      請仔細確認上方報價內容後再按下接受或拒絕。<br>
+      接受後系統將自動通知業務人員，雙方確認後正式啟動專案。
+    </div>
+    <div class="action-btns">
+      <button class="btn-accept" id="btnAccept" onclick="handleAction('accepted')">
+        ✓ 接受報價
+      </button>
+      <button class="btn-reject" id="btnReject" onclick="handleAction('rejected')">
+        ✕ 拒絕報價
+      </button>
+    </div>
+    <div class="result-banner" id="resultBanner"></div>`;
+}
+
+function renderLockedAction(status) {
+  if (status === 'accepted') {
+    return `
+      <div class="result-banner accepted" style="display:flex">
+        <span style="font-size:18px">✓</span>
+        <div>
+          <div style="font-weight:600">您已接受此份報價</div>
+          <div style="font-size:12px;margin-top:2px;opacity:.8">業務人員將盡快與您聯繫，確認專案啟動細節。感謝您的信任。</div>
+        </div>
+      </div>`;
+  }
+  return `
+    <div class="result-banner rejected" style="display:flex">
+      <span style="font-size:18px">✕</span>
+      <div>
+        <div style="font-weight:600">您已拒絕此份報價</div>
+        <div style="font-size:12px;margin-top:2px;opacity:.8">如有任何疑問或希望重新議價，歡迎直接聯繫業務人員。</div>
+      </div>
+    </div>`;
+}
+
+// ══════════════════════════════════════════════════
+//  ACTIONS
+// ══════════════════════════════════════════════════
+// Security v1：客戶只寫入兩個位置，而且都由 Firestore Rules 驗證
+//   publicQuotations/{token}             只能把「已送出」改成 accepted／rejected（只動 quotationStatus、respondedAt）
+//   quotes/{quoteId}/acceptances/{token} 接受時建立不可變快照；Rules 逐欄比對內容必須等於伺服器上的正式報價
+// 兩者用同一個 batch 送出：Rules 要求「接受」與「快照」必須同時成立，缺一不可。
+// 客戶不再寫入內部案件 quotes/{quoteId}；內部狀態由後台載入時對帳同步。
+function buildAcceptanceSnapshot(pub, timestamp) {
+  return {
+    quoteId: pub.quoteId,
+    clientToken: currentToken,
+    publicQuotationVersion: pub.version,
+    source: 'client',
+    quotationItems: pub.quotationItems,
+    quotationSubtotal: pub.quotationSubtotal,
+    quotationDiscount: pub.quotationDiscount,
+    quotationTax: pub.quotationTax,
+    quotationTotal: pub.quotationTotal,
+    paymentTerms: pub.paymentTerms,
+    validUntil: pub.validUntil || null,
+    quotationNote: pub.quotationNote || '',
+    projectDisplayName: pub.projectDisplayName,
+    clientName: pub.clientName,
+    clientCompany: pub.clientCompany,
+    acceptedAt: timestamp,
+  };
+}
+
+async function handleAction(newStatus) {
+  if (!currentToken || !currentData) return;
+  if (newStatus !== 'accepted' && newStatus !== 'rejected') return;
+
+  const acceptBtn = document.getElementById('btnAccept');
+  const rejectBtn = document.getElementById('btnReject');
+  const banner    = document.getElementById('resultBanner');
+
+  // Lock buttons immediately to prevent double-click
+  if (acceptBtn) acceptBtn.disabled = true;
+  if (rejectBtn) rejectBtn.disabled = true;
+  if (banner)    { banner.className = 'result-banner processing'; banner.innerHTML = '處理中…'; }
+
+  const isAccepted  = newStatus === 'accepted';
+  const actionLabel = isAccepted ? '接受' : '拒絕';
+  const pubRef = db.collection('publicQuotations').doc(currentToken);
+  const ts = firebase.firestore.FieldValue.serverTimestamp();
+
+  try {
+    // 送出前重新讀取最新的公開報價：快照內容必須與伺服器上「現在」的報價完全一致
+    const fresh = await pubRef.get();
+    if (!fresh.exists) throw Object.assign(new Error(INVALID_LINK_MSG), { userMessage: INVALID_LINK_MSG });
+    const pub = fresh.data();
+    if (pub.quotationStatus !== 'sent') {
+      throw Object.assign(new Error('status-changed'), { userMessage: '此報價的狀態已變更，請重新整理頁面確認最新內容。' });
+    }
+    if (pub.version !== currentData.version) {
+      throw Object.assign(new Error('version-changed'), { userMessage: '報價內容已更新，請重新整理頁面確認最新內容後再回覆。' });
+    }
+
+    const batch = db.batch();
+    batch.update(pubRef, { quotationStatus: newStatus, respondedAt: ts });
+    if (isAccepted) {
+      batch.set(db.collection('quotes').doc(pub.quoteId).collection('acceptances').doc(currentToken),
+                buildAcceptanceSnapshot(pub, ts));
+    }
+    await batch.commit();
+
+    // 同步本地 currentData
+    currentData.quotationStatus = newStatus;
+
+    // Swap buttons to locked state
+    const actionSection = document.querySelector('.action-section');
+    if (actionSection) actionSection.innerHTML = renderLockedAction(newStatus);
+
+    // Update status badge in header band
+    const badge = document.getElementById('statusBadge');
+    if (badge) {
+      badge.className = `status-badge ${QSTATUS_BADGE[newStatus]}`;
+      badge.textContent = QSTATUS_LABELS[newStatus];
+    }
+
+    showToast(`✓ 已${actionLabel}報價，感謝您的回覆`);
+  } catch (err) {
+    console.error(err);
+    // Re-enable buttons on failure
+    if (acceptBtn) acceptBtn.disabled = false;
+    if (rejectBtn) rejectBtn.disabled = false;
+    if (banner)    { banner.className = 'result-banner'; banner.style.display = 'none'; }
+    const msg = err.userMessage
+      || (err.code === 'permission-denied' ? '此報價目前無法回覆（可能已過期、已回覆或內容已更新），請重新整理頁面。' : (err.message || err));
+    showToast(`⚠ 操作失敗：${msg}`);
+  }
+}
+
+// ══════════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════════
+loadQuotation();
+</script>
+</body>
+</html>
