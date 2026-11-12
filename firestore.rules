@@ -7,6 +7,7 @@ rules_version = '2';
 //  quotes/{quoteId}/acceptances/{token}     客戶接受報價當下的快照：建立後任何人都不能改或刪（含 Admin）
 //  publicQuotations/{clientToken}           正式報價的客戶公開投影：文件 ID 即 capability token
 //  settings/{doc}                           只有 Admin
+//  quotes/{quoteId}/agreements/{id}/versions/{v}  v2.2 合約版本：只有 Admin；建立後不可修改或刪除（含 Admin）
 //
 //  Quote ID 只是 identifier，不是 access secret。公開存取能力只來自 clientToken。
 // ══════════════════════════════════════════════════════════════════════
@@ -219,10 +220,46 @@ service cloud.firestore {
             || (fromStatus == 'active' && toStatus == 'completed' && changed.hasOnly(['status', 'updatedAt']));
             // completed / cancelled：不可再修改
         }
+        // v2.2：完整合約文件的版本欄位只能「前進一版」，且必須在同一次寫入建立對應的版本文件
+        //   currentVersionNumber：目前最新版本號；versionIndex：版本清單摘要（列表用，全文在 versions 子集合）
+        function agreementVersionFieldsOk() {
+          let before = resource.data.get('currentVersionNumber', 0);
+          let after = request.resource.data.get('currentVersionNumber', 0);
+          let idxBefore = resource.data.get('versionIndex', []);
+          let idxAfter = request.resource.data.get('versionIndex', []);
+          return (after == before && idxAfter == idxBefore)
+            || (after == before + 1
+                && idxAfter.size() == idxBefore.size() + 1
+                && existsAfter(/databases/$(database)/documents/quotes/$(quoteId)/agreements/$(agreementId)/versions/$('v' + string(after))));
+        }
         allow read: if isAdmin();
-        allow create: if isAdmin() && request.resource.data.status == 'draft';
-        allow update: if isAdmin() && agreementUpdateOk();
+        allow create: if isAdmin() && request.resource.data.status == 'draft'
+          && request.resource.data.get('currentVersionNumber', 0) == 0
+          && request.resource.data.get('versionIndex', []).size() == 0;
+        allow update: if isAdmin() && agreementUpdateOk() && agreementVersionFieldsOk();
         allow delete: if isAdmin() && resource.data.status == 'draft';
+
+        // v2.2：合約版本（不可變快照）。只有草稿合約可建立；建立後任何人都不可修改或刪除，
+        // 版本號必須等於合約同一次寫入後的 currentVersionNumber，文件 ID 固定為 'v' + 版本號（同一版本號不可能建立第二次）
+        match /versions/{versionId} {
+          function validAgreementVersion() {
+            let d = request.resource.data;
+            let parentAfter = getAfter(/databases/$(database)/documents/quotes/$(quoteId)/agreements/$(agreementId));
+            return d.keys().hasAll(['schemaVersion', 'versionNumber', 'createdAt', 'createdBy', 'document', 'renderedSections'])
+              && d.keys().hasOnly(['schemaVersion', 'versionNumber', 'createdAt', 'createdBy', 'note', 'document',
+                                   'renderedSections', 'agreementSnapshot', 'contractDataSnapshot'])
+              && d.versionNumber is int && d.versionNumber >= 1
+              && versionId == 'v' + string(d.versionNumber)
+              && d.createdAt == request.time
+              && d.createdBy == request.auth.token.email
+              && parentAfter != null
+              && parentAfter.data.status == 'draft'
+              && parentAfter.data.get('currentVersionNumber', 0) == d.versionNumber;
+          }
+          allow read: if isAdmin();
+          allow create: if isAdmin() && validAgreementVersion();
+          allow update, delete: if false;
+        }
       }
     }
 

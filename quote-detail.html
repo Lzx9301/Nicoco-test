@@ -18,6 +18,9 @@
 <script src="requirement-review.js"></script>
 <!-- Agreement Generator v2.1：合約資料整合與完整需求附件（純邏輯，不讀寫 Firestore） -->
 <script src="agreement-data.js"></script>
+<!-- Agreement Generator v2.2：完整合約文件（主契約＋附件、修改與驗收規則、版本）＋編輯器介面 -->
+<script src="agreement-document.js"></script>
+<script src="agreement-doc-ui.js"></script>
 <!-- 後台流程與介面整理 v1：流程進度與下一步建議（純判斷，不寫資料） -->
 <script src="admin-workflow.js"></script>
 <script>
@@ -353,6 +356,7 @@ body {
 </style>
 <link rel="stylesheet" href="admin-ui.css">
 <link rel="stylesheet" href="agreement-v21.css">
+<link rel="stylesheet" href="agreement-v22.css">
 </head>
 <body>
 
@@ -4367,7 +4371,7 @@ async function agrUpdateStatus(agr, newStatus, extra, logText) {
 // signed/active/completed 一律鎖死，不允許改回其他狀態、不允許取消。
 async function agrMarkReady(id) {
   const a = agreements.find(x => x.id === id); if (!a || a.status !== 'draft') return;
-  const missingNote = agrV21ReadyWarning(a);
+  const missingNote = agrV21ReadyWarning(a) + (typeof agrDocReadyWarning === 'function' ? agrDocReadyWarning(a) : '');
   if (!confirm(`確定要將 ${a.agreementNumber} 標記為「已備妥」嗎？${missingNote}`)) return;
   await agrUpdateStatus(a, 'ready', {}, `${a.agreementNumber} 已備妥`);
 }
@@ -4429,6 +4433,8 @@ function renderAgreementUI() {
   const el = document.getElementById('agreementSection');
   if (!el) return;
   if (agreementBuilder) { el.innerHTML = renderAgreementBuilder(); return; }
+  // v2.2：完整合約文件編輯器（agreement-doc-ui.js）
+  if (typeof agrDoc !== 'undefined' && agrDoc) { const h = agrDocRender(); if (h) { el.innerHTML = h; return; } }
   if (agreementPreviewId) { el.innerHTML = agrV21RenderSavedPreview(); return; }
 
   const summary = computeAgreementSummary();
@@ -4472,6 +4478,7 @@ function renderAgreementRow(a) {
   } else if (a.status === 'active') {
     actions.push(`<button class="btn-copy-link" onclick="agrMarkCompleted('${a.id}')">標記已完成</button>`);
   }
+  actions.push(`<button class="btn-copy-link" onclick="agrDocOpen('${a.id}')">完整合約文件${a.currentVersionNumber ? `（v${Number(a.currentVersionNumber)}）` : ''}</button>`);
   actions.push(`<button class="btn-copy-link" onclick="agrV21OpenPreview('${a.id}')">合約資料預覽</button>`);
   actions.push(`<button class="btn-copy-link" aria-expanded="${detailOpen ? 'true' : 'false'}" onclick="agrToggleDetail('${a.id}')">${detailOpen ? '收合' : '查看詳細'}</button>`);
 
@@ -4484,6 +4491,7 @@ function renderAgreementRow(a) {
         <div style="margin-bottom:4px">付款計畫（${(a.paymentPlanSnapshot || []).length} 期）：${(a.paymentPlanSnapshot || []).map(p => `${escapeHtml(p.title)} ${p.percentage}%`).join('、') || '—'}</div>
         ${a.timeline && (a.timeline.estimatedStartDate || a.timeline.estimatedCompletionDate) ? `<div style="margin-bottom:4px">預計期間：${a.timeline.estimatedStartDate || '—'} ～ ${a.timeline.estimatedCompletionDate || '—'}</div>` : ''}
         <div style="margin-bottom:4px">合約資料：${a.contractData ? `v${escapeHtml(a.agreementSchemaVersion || a.contractData.schemaVersion || '2.1')}・${escapeHtml(window.NicocoAgreement ? NicocoAgreement.sourceSummary(a.contractData.sources).replace(/<[^>]+>/g, '') : '')}` : '無（建立於 v2.1 之前）'}</div>
+        <div style="margin-bottom:4px">完整合約文件：${a.contractDocument ? (a.currentVersionNumber ? `已建立 ${Number(a.currentVersionNumber)} 個版本` : '草稿（尚未建立版本）') : '尚未建立'}</div>
         ${locked ? `<div style="color:var(--ink-30);margin-top:6px">此合約內容已鎖定為歷史定案資料，如需更正請建立新的合約。</div>` : ''}
       </div>` : '';
 
@@ -5274,6 +5282,8 @@ window.addEventListener('beforeunload', (e) => {
 // v2.1.1：合約草稿有未儲存修改時，離開頁面前提醒
 window.addEventListener('beforeunload', (e) => {
   if (typeof agrV21IsDirty === 'function' && agrV21IsDirty()) { e.preventDefault(); e.returnValue = ''; }
+  // v2.2：完整合約文件有未儲存修改
+  if (typeof agrDocIsDirty === 'function' && agrDocIsDirty()) { e.preventDefault(); e.returnValue = ''; }
 });
 
 // ══════════════════════════════════════════════════

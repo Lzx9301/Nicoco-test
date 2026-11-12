@@ -1129,6 +1129,39 @@
     return h;
   }
 
+  // 開發費用明細（合約資料預覽第 5 區；v2.2 完整合約文件附件五共用）
+  function renderFeeBody(agr, data, opts) {
+    opts = opts || {};
+    function kv(k, v) { return '<div class="agv-kv"><span class="agv-k">' + esc(k) + '</span>' + (trim(v) ? esc(v) : emptyMark()) + '</div>'; }
+    var fees = buildFees(data, agr.contractAmountSnapshot);
+    var feeBody = '<div class="agv-muted">金額來源：' + (fees.quotationSource === 'acceptance' ? '客戶接受報價時的快照' : fees.quotationSource === 'quote' ? '正式報價（' + esc(fees.quotationStatus || '') + '）' : fees.baseTotalSource === 'officialPrice' ? '議定金額（舊欄位）' : '無') + '</div>';
+    feeBody += '<table class="agv-table"><tbody>' +
+      FEE_CATEGORY_ORDER.filter(function (k) { return k !== 'unclassified' || fees.categories.unclassified.lineCount; }).map(function (k) {
+        var c = fees.categories[k];
+        return '<tr><td>' + esc(c.label) + '</td><td class="agv-num">' + (fees.mode === 'itemized' && !c.lineCount && k !== 'unclassified' ? emptyMark('無') : feeAmount(c.amount, fees.mode, c.hasPending)) + '</td></tr>';
+      }).join('') +
+      '<tr><td>折扣</td><td class="agv-num">' + (fees.mode === 'none' ? emptyMark('—') : esc(fees.discount ? '-' + money(fees.discount) : money(0))) + '</td></tr>' +
+      '<tr><td>稅額</td><td class="agv-num">' + (fees.mode === 'none' ? emptyMark('—') : esc(money(fees.tax))) + '</td></tr>' +
+      '<tr class="agv-total"><td>' + (fees.baseTotalSource === 'officialPrice' ? '議定金額（舊欄位）' : '正式報價總額') + '</td><td class="agv-num">' + (fees.baseTotal ? esc(money(fees.baseTotal)) : emptyMark('—')) + '</td></tr>' +
+      '</tbody></table>';
+    feeBody += renderAmountBlock(fees, opts.live);
+    if (fees.mode === 'itemized') {
+      feeBody += '<h4 class="agv-h4">報價明細與分類</h4><table class="agv-table"><thead><tr><th>報價項目</th><th>分類</th><th class="agv-num">金額</th></tr></thead><tbody>' +
+        fees.lines.map(function (l) {
+          return '<tr><td>' + esc(l.name) + '<span class="agv-key">' + esc(l.quotationItemId) + '</span></td><td>' + esc(FEE_CATEGORIES[l.category]) +
+            (l.categorySource === 'auto' ? '<span class="agv-muted">（依需求資料）</span>' : l.categorySource === 'manual' ? '<span class="agv-muted">（人工指定）</span>' : '') + '</td><td class="agv-num">' +
+            (l.pricingPending ? '<span class="agv-warn">待定價</span>' : esc(money(l.amount))) + '</td></tr>';
+        }).join('') + '</tbody></table>';
+    }
+    var plan = arr(agr.paymentPlanSnapshot);
+    feeBody += '<h4 class="agv-h4">分期付款條件</h4>' +
+      (fees.paymentTerms ? kv('報價付款條件', fees.paymentTerms) : '') +
+      (plan.length ? '<table class="agv-table"><thead><tr><th>期別</th><th class="agv-num">比例</th><th class="agv-num">金額</th><th>預計日期</th></tr></thead><tbody>' +
+        plan.map(function (p) { return '<tr><td>' + esc(p.title) + '</td><td class="agv-num">' + esc(p.percentage) + '%</td><td class="agv-num">' + esc(money(p.amount)) + '</td><td>' + (p.dueDate ? esc(p.dueDate) : emptyMark('—')) + '</td></tr>'; }).join('') +
+        '</tbody></table>' : emptyMark('尚未設定付款計畫'));
+    return feeBody;
+  }
+
   function renderPreview(agr, opts) {
     agr = agr || {}; opts = opts || {};
     var data = agr.contractData || null;
@@ -1189,32 +1222,7 @@
 
     // 5 開發費用明細
     var fees = buildFees(data, agr.contractAmountSnapshot);
-    var feeBody = '<div class="agv-muted">金額來源：' + (fees.quotationSource === 'acceptance' ? '客戶接受報價時的快照' : fees.quotationSource === 'quote' ? '正式報價（' + esc(fees.quotationStatus || '') + '）' : fees.baseTotalSource === 'officialPrice' ? '議定金額（舊欄位）' : '無') + '</div>';
-    feeBody += '<table class="agv-table"><tbody>' +
-      FEE_CATEGORY_ORDER.filter(function (k) { return k !== 'unclassified' || fees.categories.unclassified.lineCount; }).map(function (k) {
-        var c = fees.categories[k];
-        return '<tr><td>' + esc(c.label) + '</td><td class="agv-num">' + (fees.mode === 'itemized' && !c.lineCount && k !== 'unclassified' ? emptyMark('無') : feeAmount(c.amount, fees.mode, c.hasPending)) + '</td></tr>';
-      }).join('') +
-      '<tr><td>折扣</td><td class="agv-num">' + (fees.mode === 'none' ? emptyMark('—') : esc(fees.discount ? '-' + money(fees.discount) : money(0))) + '</td></tr>' +
-      '<tr><td>稅額</td><td class="agv-num">' + (fees.mode === 'none' ? emptyMark('—') : esc(money(fees.tax))) + '</td></tr>' +
-      '<tr class="agv-total"><td>' + (fees.baseTotalSource === 'officialPrice' ? '議定金額（舊欄位）' : '正式報價總額') + '</td><td class="agv-num">' + (fees.baseTotal ? esc(money(fees.baseTotal)) : emptyMark('—')) + '</td></tr>' +
-      '</tbody></table>';
-    feeBody += renderAmountBlock(fees, opts.live);
-    if (fees.mode === 'itemized') {
-      feeBody += '<h4 class="agv-h4">報價明細與分類</h4><table class="agv-table"><thead><tr><th>報價項目</th><th>分類</th><th class="agv-num">金額</th></tr></thead><tbody>' +
-        fees.lines.map(function (l) {
-          return '<tr><td>' + esc(l.name) + '<span class="agv-key">' + esc(l.quotationItemId) + '</span></td><td>' + esc(FEE_CATEGORIES[l.category]) +
-            (l.categorySource === 'auto' ? '<span class="agv-muted">（依需求資料）</span>' : l.categorySource === 'manual' ? '<span class="agv-muted">（人工指定）</span>' : '') + '</td><td class="agv-num">' +
-            (l.pricingPending ? '<span class="agv-warn">待定價</span>' : esc(money(l.amount))) + '</td></tr>';
-        }).join('') + '</tbody></table>';
-    }
-    var plan = arr(agr.paymentPlanSnapshot);
-    feeBody += '<h4 class="agv-h4">分期付款條件</h4>' +
-      (fees.paymentTerms ? kv('報價付款條件', fees.paymentTerms) : '') +
-      (plan.length ? '<table class="agv-table"><thead><tr><th>期別</th><th class="agv-num">比例</th><th class="agv-num">金額</th><th>預計日期</th></tr></thead><tbody>' +
-        plan.map(function (p) { return '<tr><td>' + esc(p.title) + '</td><td class="agv-num">' + esc(p.percentage) + '%</td><td class="agv-num">' + esc(money(p.amount)) + '</td><td>' + (p.dueDate ? esc(p.dueDate) : emptyMark('—')) + '</td></tr>'; }).join('') +
-        '</tbody></table>' : emptyMark('尚未設定付款計畫'));
-    html += sec(5, '開發費用明細', feeBody);
+    html += sec(5, '開發費用明細', renderFeeBody(agr, data, opts));
 
     // 6 維護與額外修改
     var m = data.maintenance || {};
@@ -1309,6 +1317,12 @@
     missingInfo: missingInfo,
     renderPreview: renderPreview,
     renderAmountBlock: renderAmountBlock,
+    // v2.2：完整合約文件附件共用
+    renderFeeBody: renderFeeBody,
+    renderOriginalSections: renderOriginalSections,
+    renderRowBlock: rowBlock,
+    dateText: dateText,
+    money: money,
     DRAFT_STATE_TEXT: DRAFT_STATE_TEXT,
     sourceSummary: sourceSummary,
     toFirestore: toFirestore,

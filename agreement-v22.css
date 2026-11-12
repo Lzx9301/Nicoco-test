@@ -1,0 +1,95 @@
+/* ══════════════════════════════════════════════════════════════════
+   Nicoco — Agreement Generator v2.2：完整合約文件編輯器與預覽
+   沿用 admin-ui.css／agreement-v21.css 的變數與元件；無動畫。
+   ══════════════════════════════════════════════════════════════════ */
+
+.agd-card { border: 2px solid var(--ink, #0f1117); }
+.agd-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+
+/* 分頁 */
+.agd-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 14px; border-bottom: 1.5px solid var(--ink-10, #f0f1f4); }
+.agd-tab {
+  appearance: none; border: none; background: none; cursor: pointer; font: inherit;
+  font-size: 13px; color: var(--ink-60, #60636e); padding: 8px 10px; border-bottom: 2px solid transparent; margin-bottom: -1.5px;
+}
+.agd-tab-on { color: var(--ink, #0f1117); font-weight: 700; border-bottom-color: var(--ink, #0f1117); }
+
+/* 操作列 */
+.agd-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--ink-10, #f0f1f4); }
+.agd-note-input { flex: 1 1 220px; min-width: 0; width: auto; }
+.agd-sub-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+
+/* 警示 */
+.agd-warnings { margin: 0 0 12px; padding: 10px 12px; border-radius: 8px; background: var(--amber-light, #fffbeb); border: 1px solid #fde68a; }
+.agd-warnings-title { font-size: 12.5px; font-weight: 700; color: #92400e; margin-bottom: 4px; }
+.agd-warnings ul { margin: 0; padding: 0; list-style: none; max-height: 260px; overflow-y: auto; }
+.agd-warnings li { font-size: 12.5px; line-height: 1.7; color: var(--ink, #0f1117); }
+.agd-lv-required .agv-tag { background: #fef2f2; color: var(--red, #dc2626); }
+.agd-lv-check .agv-tag { background: #fff; color: var(--amber, #d97706); }
+
+/* 編輯區 */
+.agd-confirm { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; margin: 8px 0; cursor: pointer; line-height: 1.5; }
+.agd-confirm input { margin-top: 3px; }
+.agd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px 12px; margin: 8px 0; }
+.agd-num { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ink-60, #60636e); }
+.agd-num input { width: 100%; }
+.agd-types { display: flex; flex-direction: column; gap: 4px; margin: 6px 0 10px; }
+.agd-check { font-size: 13px; display: flex; gap: 8px; align-items: flex-start; cursor: pointer; line-height: 1.5; }
+.agd-check input { margin-top: 3px; }
+.agd-tokens { margin: 6px 0 10px; font-size: 12px; }
+.agd-tokens summary { cursor: pointer; color: var(--ink-60, #60636e); }
+.agd-tokens code { font-size: 11px; background: var(--ink-10, #f0f1f4); padding: 0 4px; border-radius: 4px; }
+.agd-edit-sec { margin-bottom: 12px; }
+.agd-edit-sec-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 13px; }
+.agd-ta { min-height: 180px; font-size: 13px; line-height: 1.7; }
+.agd-ta-s { min-height: 56px; }
+
+/* 預覽：合約本文 */
+.agd-preview { font-size: 13.5px; color: var(--ink, #0f1117); }
+.agd-doc { background: #fff; border: 1px solid var(--ink-10, #f0f1f4); border-radius: 10px; padding: 20px 22px; }
+.agd-title { text-align: center; font-size: 18px; font-weight: 700; margin: 0 0 16px; letter-spacing: .08em; }
+.agd-annex-title { margin-top: 28px; padding-top: 18px; border-top: 2px solid var(--ink, #0f1117); }
+.agd-sec, .agd-annex { margin-bottom: 16px; }
+.agd-h { font-size: 14px; font-weight: 700; margin: 0 0 6px; }
+.agd-p { margin: 0 0 4px; line-height: 1.85; white-space: pre-wrap; word-break: break-word; }
+.agd-li { padding-left: 1em; }
+.agd-flag { background: #fef3c7; color: #92400e; padding: 0 2px; border-radius: 3px; }
+.agd-missing { font-size: 12.5px; color: #92400e; background: #fef3c7; padding: 6px 8px; border-radius: 6px; }
+.agd-annex-note { font-size: 12.5px; color: var(--ink-60, #60636e); margin-bottom: 6px; }
+.agd-sign { display: flex; flex-wrap: wrap; gap: 8px 40px; margin: 22px 0 6px; font-size: 13.5px; }
+
+/* 預覽狀態標示 */
+.agd-banner { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; margin: 0 0 12px; padding: 10px 12px; border-radius: 8px; font-size: 12.5px; line-height: 1.6; border: 1.5px solid; }
+.agd-banner strong { font-size: 13px; }
+.agd-banner-unsaved { background: #fef2f2; border-color: #fca5a5; color: #991b1b; }
+.agd-banner-draft { background: var(--amber-light, #fffbeb); border-color: #fde68a; color: #92400e; }
+.agd-banner-version { background: var(--accent-light, #eff6ff); border-color: #bfdbfe; color: #1e40af; }
+.agd-banner-locked { background: var(--ink-10, #f0f1f4); border-color: var(--ink-30, #b8bac4); color: var(--ink, #0f1117); }
+
+/* 版本紀錄 */
+.agd-ver { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--ink-10, #f0f1f4); font-size: 13px; }
+.agd-ver-main { flex: 1; min-width: 200px; line-height: 1.6; }
+.agd-ver-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* 差異 */
+.agd-diff-head { font-size: 13px; margin-bottom: 8px; }
+.agd-diff-sec { border: 1px solid var(--ink-10, #f0f1f4); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; background: #fff; }
+.agd-dl { font-size: 12.5px; line-height: 1.7; padding: 1px 6px; white-space: pre-wrap; word-break: break-word; }
+.agd-same { color: var(--ink-60, #60636e); }
+.agd-dl.agd-del, del.agd-del { background: #fef2f2; color: #991b1b; text-decoration: line-through; }
+.agd-dl.agd-ins, ins.agd-ins { background: #f0fdf4; color: #166534; text-decoration: none; }
+
+@media (max-width: 640px) {
+  .agd-doc { padding: 14px 12px; }
+  .agd-title { font-size: 16px; }
+  .agd-ta { min-height: 220px; }
+  .agd-actions .btn-save, .agd-actions .btn-copy-link { flex: 1 1 auto; }
+}
+
+/* 合約本文中的表格（附件五費用明細等）：長的報價項目識別碼可換行，手機寬度不溢出 */
+.agd-doc .agv-table th, .agd-doc .agv-table td { overflow-wrap: anywhere; word-break: break-word; }
+.agd-doc .agv-key { display: inline-block; margin-left: 0; overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .agd-doc .agv-table th, .agd-doc .agv-table td { padding: 5px 3px; font-size: 12px; }
+  .agd-doc .agv-num { white-space: normal; }
+}
