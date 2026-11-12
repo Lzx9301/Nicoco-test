@@ -132,6 +132,11 @@
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
+  function dateText(t) {
+    var ms = tsMs(t); if (ms == null) return '';
+    var d = new Date(ms);
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  }
   function money(n) { return 'NT$' + num(n).toLocaleString('en-US'); }
   function signedMoney(n) { n = num(n); return (n < 0 ? '-' : '+') + 'NT$' + Math.abs(n).toLocaleString('en-US'); }
   function cleanLabel(s) { return str(s).replace(/（可複選）/g, ''); }
@@ -383,7 +388,7 @@
   function allowedStatuses(row) {
     if (row.sourceKind === 'change_request') return ['change_confirmed'];
     if (row.sourceKind === 'change_proposal') return ['pending'];
-    if (row.basis === 'confirmed_included' || row.basis === 'accepted_quotation') {
+    if (row.basis === 'confirmed_included' || row.basis === 'accepted_quotation' || row.basis === 'admin_confirmed_legacy') {
       return ['included', 'separate_quote', 'pending', 'excluded'];
     }
     return ['pending', 'excluded', 'separate_quote'];
@@ -404,6 +409,7 @@
       defaultStatus: 'pending', contractStatus: 'pending',
       agreedScope: '', exclusions: '', deliverables: '', acceptanceCriteria: '', notes: '', openQuestions: '',
       flags: [],
+      legacyConfirmation: null,   // v2.1.1：舊案件由 Admin 在合約資料中明確確認納入的紀錄
     };
   }
 
@@ -593,12 +599,53 @@
   function sanitizeItems(rows) {
     var reset = 0;
     arr(rows).forEach(function (r) {
+      // 「管理員確認納入」只對有確認紀錄的舊案件列有效
+      if (r.basis === 'admin_confirmed_legacy' && !(r.sourceKind === 'legacy' && r.legacyConfirmation)) { r.basis = 'unconfirmed'; r.legacyConfirmation = null; }
       r.allowedStatuses = allowedStatuses(r);
       if (r.allowedStatuses.indexOf(r.contractStatus) === -1) { r.contractStatus = r.defaultStatus; reset++; }
       if (r.allowedStatuses.indexOf(r.contractStatus) === -1) { r.contractStatus = r.allowedStatuses[0]; }
       EDITABLE_FIELDS.forEach(function (f) { r[f] = str(r[f]); });
     });
     return reset;
+  }
+
+  // ── v2.1.1 舊案件需求確認（只適用 sourceKind＝legacy：沒有需求書、沒有確認需求的舊估價欄位）──
+  // 原始舊欄位本身不是正式承諾：只有 Admin 逐項勾選並按下確認，才會把該列的依據改為 admin_confirmed_legacy 並設為已納入。
+  // 只修改傳入的合約草稿列（contractData.items），不碰案件的任何原始資料。
+  function isLegacyRow(r) { return !!r && r.sourceKind === 'legacy'; }
+  function confirmLegacyRows(rows, ids, meta) {
+    meta = meta || {};
+    var want = {}; arr(ids).forEach(function (id) { want[id] = true; });
+    var n = 0;
+    arr(rows).forEach(function (r) {
+      if (!want[r.contractItemId] || !isLegacyRow(r)) return;
+      r.legacyConfirmation = { confirmedAt: meta.confirmedAt || null, confirmedBy: str(meta.confirmedBy || 'admin'), note: str(meta.note) };
+      r.basis = 'admin_confirmed_legacy';
+      r.allowedStatuses = allowedStatuses(r);
+      r.contractStatus = 'included';
+      if (!trim(r.agreedScope)) r.agreedScope = r.label;
+      n++;
+    });
+    return n;
+  }
+  function revokeLegacyConfirmation(row) {
+    if (!isLegacyRow(row) || !row.legacyConfirmation) return false;
+    row.legacyConfirmation = null;
+    row.basis = 'unconfirmed';
+    row.allowedStatuses = allowedStatuses(row);
+    if (row.allowedStatuses.indexOf(row.contractStatus) === -1) row.contractStatus = 'pending';
+    return true;
+  }
+  function excludeLegacyRows(rows, ids) {
+    var want = {}; arr(ids).forEach(function (id) { want[id] = true; });
+    var n = 0;
+    arr(rows).forEach(function (r) {
+      if (!want[r.contractItemId] || !isLegacyRow(r)) return;
+      if (r.legacyConfirmation) revokeLegacyConfirmation(r);
+      r.contractStatus = 'excluded';
+      n++;
+    });
+    return n;
   }
 
   function isObligation(row) { return OBLIGATION_STATUSES.indexOf(row.contractStatus) !== -1; }
@@ -624,6 +671,9 @@
         } else if (r.reviewDecision === 'included' && norm(r.confirmedDescription) && descriptionChanged(r)) {
           out.push({ type: 'description_changed', contractItemId: r.contractItemId, label: r.label, original: r.originalContent, confirmed: r.confirmedDescription, text: '確認需求的描述與原始內容不同' });
         }
+      } else if (r.sourceKind === 'legacy' && r.legacyConfirmation) {
+        out.push({ type: 'legacy_confirmed', contractItemId: r.contractItemId, label: r.label, original: r.originalContent, confirmed: r.agreedScope,
+          text: '舊版估價欄位，由管理員於合約資料中確認納入' + (r.legacyConfirmation.confirmedAt ? '（' + dateText(r.legacyConfirmation.confirmedAt) + '）' : '') });
       } else if (r.sourceKind === 'snapshot_missing') {
         out.push({ type: 'missing_from_confirmed', contractItemId: r.contractItemId, label: r.label, original: r.originalContent, confirmed: '', text: '原始需求未出現在確認需求中' });
       } else if (r.sourceKind === 'change_request') {
@@ -696,7 +746,8 @@
     var baseTotal = num(q.total) > 0 ? num(q.total) : num(q.officialPrice);
     var baseTotalSource = num(q.total) > 0 ? 'quotationTotal' : (num(q.officialPrice) > 0 ? 'officialPrice' : 'none');
     var ca = num(contractAmount);
-    var amountTraceable = ca > 0 && (ca === baseTotal || ca === baseTotal + approvedDelta);
+    var amt = amountBasis(data, ca, approvedDelta);
+    var amountTraceable = amt.basis !== 'unknown';
 
     return {
       mode: mode,
@@ -719,10 +770,65 @@
       contractAmount: ca,
       expectedWithChanges: baseTotal + approvedDelta,
       amountTraceable: amountTraceable,
+      // v2.1.1：原合約金額／已核准追加／調整後專案總額
+      amountBasis: amt.basis,
+      amountBasisSource: amt.source,
+      amountReferences: amt.references,
+      originalContractAmount: ca,
+      originalExcludingChanges: amt.originalExcludingChanges,
+      adjustedTotal: amt.adjustedTotal,
       unclassifiedCount: lines.filter(function (l) { return l.category === 'unclassified'; }).length,
       pendingPriceCount: lines.filter(function (l) { return l.pricingPending; }).length,
       paymentTerms: str(q.paymentTerms),
     };
+  }
+
+  // ── v2.1.1 合約金額基準 ──────────────────────────────────────────
+  // 判斷「合約總額（contractAmountSnapshot）」是否已包含已核准需求變更，避免重複計算。
+  // 對照金額只取「變更前」的正式來源：正式報價總額、議定金額（舊欄位）、收款系統的原合約金額（project.contractAmount）。
+  //   - 合約總額 = 對照金額                 → 不含已核准變更（excludes_changes）：調整後 = 合約總額 + 已核准變更
+  //   - 合約總額 = 對照金額 + 已核准變更合計 → 已含已核准變更（includes_changes）：調整後 = 合約總額
+  //   - 沒有已核准變更且合約總額 = 對照金額 → no_changes
+  //   - 兩種都符合或都不符合                 → unknown（待人工確認；可由 Admin 明確指定 amountBasisOverride）
+  var AMOUNT_BASIS_TEXT = {
+    excludes_changes: '原合約金額不含已核准變更',
+    includes_changes: '原合約金額已包含已核准變更',
+    no_changes: '沒有已核准變更',
+    unknown: MANUAL_CHECK_TEXT,
+  };
+  function amountBasis(data, ca, approvedDelta) {
+    data = data || {};
+    var q = data.quotationSnapshot || {};
+    var refs = [];
+    if (num(q.total) > 0) refs.push({ key: 'quotationTotal', label: '正式報價總額', amount: num(q.total) });
+    if (num(q.officialPrice) > 0) refs.push({ key: 'officialPrice', label: '議定金額（舊欄位）', amount: num(q.officialPrice) });
+    var pa = data.projectAmountsAtCapture || null;
+    if (pa && num(pa.contractAmount) > 0) refs.push({ key: 'projectContractAmount', label: '收款系統原合約金額', amount: num(pa.contractAmount) });
+    var eqBase = ca > 0 && refs.some(function (r) { return r.amount === ca; });
+    var eqWith = ca > 0 && approvedDelta !== 0 && refs.some(function (r) { return r.amount + approvedDelta === ca; });
+    var auto;
+    if (!(ca > 0)) auto = 'unknown';
+    else if (approvedDelta === 0) auto = eqBase ? 'no_changes' : 'unknown';
+    else if (eqBase && !eqWith) auto = 'excludes_changes';
+    else if (eqWith && !eqBase) auto = 'includes_changes';
+    else auto = 'unknown';
+    var ov = data.amountBasisOverride;
+    var basis = auto, source = 'auto';
+    if (approvedDelta !== 0 && ca > 0 && (ov === 'excludes_changes' || ov === 'includes_changes')) { basis = ov; source = 'manual'; }
+    var adjusted = null, origEx = null;
+    if (basis === 'excludes_changes') { adjusted = ca + approvedDelta; origEx = ca; }
+    else if (basis === 'includes_changes') { adjusted = ca; origEx = ca - approvedDelta; }
+    else if (basis === 'no_changes') { adjusted = ca; origEx = ca; }
+    return { basis: basis, source: source, auto: auto, references: refs, adjustedTotal: adjusted, originalExcludingChanges: origEx };
+  }
+
+  // 與收款系統「目前合約總額」比較（live.paymentTotal 由頁面以既有 resolvePaymentContractValue() 取得，邏輯完全相同）
+  function paymentComparison(fees, live) {
+    live = live || {};
+    if (!live.projectExists || !(num(live.paymentTotal) > 0)) return { available: false };
+    if (fees.adjustedTotal == null) return { available: true, paymentTotal: num(live.paymentTotal), matches: null };
+    return { available: true, paymentTotal: num(live.paymentTotal), matches: num(live.paymentTotal) === fees.adjustedTotal,
+      difference: num(live.paymentTotal) - fees.adjustedTotal };
   }
 
   // ══════════════════════════════════════════════════════════════════
@@ -790,6 +896,14 @@
       changePolicy: (previous && previous.changePolicy) ? clone(previous.changePolicy) : reservedChangePolicy(),
       termsVersion: (previous && previous.termsVersion) ? clone(previous.termsVersion) : reservedTermsVersion(),
       resyncCount: previous ? num(previous.resyncCount) + 1 : 0,
+      // v2.1.1：帶入時收款系統的金額（只作為對照，不寫回 project）
+      projectAmountsAtCapture: quote.project ? {
+        contractAmount: num(quote.project.contractAmount),
+        changeRequestTotal: num(quote.project.changeRequestTotal),
+        currentContractValue: num(quote.project.currentContractValue),
+      } : null,
+      // v2.1.1：Admin 明確指定的金額基準（excludes_changes／includes_changes）；未指定＝自動判斷
+      amountBasisOverride: (previous && (previous.amountBasisOverride === 'excludes_changes' || previous.amountBasisOverride === 'includes_changes')) ? previous.amountBasisOverride : null,
       // 帶入時讀取失敗的來源（例如需求變更清單讀不到）：列入「尚缺少的必要資訊」
       loadWarnings: arr(ctx.loadWarnings).map(str),
     };
@@ -817,6 +931,11 @@
         // Admin 改過（與當時自動帶入的值不同）才保留；沒改過的就換成新來源的預設值
         if (oldVal !== oldAuto) r[f] = oldVal;
       });
+      // v2.1.1：舊案件的人工確認納入跟著同一個合約項目保留
+      if (r.sourceKind === 'legacy' && o.sourceKind === 'legacy' && o.legacyConfirmation) {
+        r.legacyConfirmation = o.legacyConfirmation;
+        r.basis = 'admin_confirmed_legacy';
+      }
       var allowed = allowedStatuses(r);
       if (o.contractStatus && allowed.indexOf(o.contractStatus) !== -1) r.contractStatus = o.contractStatus;
       else if (o.contractStatus && o.contractStatus !== r.defaultStatus) {
@@ -870,6 +989,8 @@
     if (conf.present && q.present && arr(q.items).length && !q.requirementRevision) chk('正式報價明細不是依確認需求產生，對應關係需人工確認');
 
     var rows = arr(data.items);
+    var legacyOpen = rows.filter(function (r) { return r.sourceKind === 'legacy' && !r.legacyConfirmation && r.contractStatus === 'pending'; });
+    if (legacyOpen.length) chk('舊版估價欄位 ' + legacyOpen.length + ' 項尚未由管理員確認（可用「舊案件需求確認」批次處理）');
     var pending = rows.filter(function (r) { return r.contractStatus === 'pending'; });
     if (pending.length) chk(pending.length + ' 項需求仍為「待確認」，不會列入開發義務');
     var mapCheck = rows.filter(function (r) { return isObligation(r) && r.quotationMapping === 'manual_check'; });
@@ -889,7 +1010,12 @@
     if (fees.pendingPriceCount) req(fees.pendingPriceCount + ' 筆報價明細尚未定價');
     if (!fees.subtotalMatches) chk('報價明細加總與報價小計不一致');
     if (!(num(agr.contractAmountSnapshot) > 0)) req('合約總額');
-    else if (fees.baseTotal > 0 && !fees.amountTraceable) chk('合約總額 ' + money(agr.contractAmountSnapshot) + ' 無法對應正式報價（' + money(fees.baseTotal) + '）或報價＋已核准變更（' + money(fees.expectedWithChanges) + '）');
+    else if (fees.amountBasis === 'unknown') {
+      if (fees.approvedChangeDelta !== 0) req('原合約金額 ' + money(agr.contractAmountSnapshot) + ' 是否已包含已核准變更（' + signedMoney(fees.approvedChangeDelta) + '）：' + MANUAL_CHECK_TEXT);
+      else if (fees.amountReferences.length) chk('合約總額 ' + money(agr.contractAmountSnapshot) + ' 無法對應' + fees.amountReferences.map(function (r) { return r.label + '（' + money(r.amount) + '）'; }).join('或'));
+    }
+    var pc = paymentComparison(fees, live);
+    if (pc.available && pc.matches === false) chk('調整後專案總額 ' + money(fees.adjustedTotal) + ' 與收款系統目前合約總額 ' + money(pc.paymentTotal) + ' 不一致（差額 ' + signedMoney(pc.difference) + '）');
     if (fees.proposedChanges.length) chk(fees.proposedChanges.length + ' 筆需求變更仍在提案中，未列入合約');
     var plan = arr(agr.paymentPlanSnapshot);
     if (!plan.length) req('付款計畫');
@@ -951,7 +1077,7 @@
         '<span class="agv-key">' + esc(r.contractItemId) + (r.requirementKey ? '・' + esc(r.requirementKey) : '') + '</span></div>' +
       (r.groupLabel ? '<div class="agv-muted">' + esc(r.groupLabel) + '</div>' : '') +
       field('原始需求內容', r.originType === 'admin_added' ? '' : r.originalContent, r.originType === 'admin_added' ? '非客戶原始需求（需求審核新增）' : r.originType === 'quotation' ? '來自正式報價明細' : '無') +
-      '<div class="agv-f"><span class="agv-k">審核狀態</span>' + (r.reviewDecision ? esc(REVIEW_DECISION_TEXT[r.reviewDecision] || r.reviewDecision) + (r.confirmedRevision ? '（確認需求第 ' + esc(r.confirmedRevision) + ' 版）' : '') : emptyMark(r.sourceKind === 'change_request' ? '需求變更（已核准）' : r.sourceKind === 'change_proposal' ? '需求變更（提案中）' : '未經需求審核')) + '</div>' +
+      '<div class="agv-f"><span class="agv-k">審核狀態</span>' + (r.legacyConfirmation ? '管理員確認納入（舊案件' + (r.legacyConfirmation.confirmedAt ? '，' + esc(dateText(r.legacyConfirmation.confirmedAt)) : '') + '）' : r.reviewDecision ? esc(REVIEW_DECISION_TEXT[r.reviewDecision] || r.reviewDecision) + (r.confirmedRevision ? '（確認需求第 ' + esc(r.confirmedRevision) + ' 版）' : '') : emptyMark(r.sourceKind === 'change_request' ? '需求變更（已核准）' : r.sourceKind === 'change_proposal' ? '需求變更（提案中）' : '未經需求審核')) + '</div>' +
       field('最終約定的開發內容', isObligation(r) ? r.agreedScope : '', isObligation(r) ? '未填寫' : '不列入本合約開發義務') +
       field('明確不包含', r.exclusions) +
       field('交付成果', r.deliverables) +
@@ -964,6 +1090,45 @@
       '</div>';
   }
 
+  // v2.1.1：預覽狀態標示（避免把未儲存或未定稿的預覽誤認為正式合約）
+  var DRAFT_STATE_TEXT = {
+    unsaved_new: ['unsaved', '尚未儲存的新合約草稿', '此預覽尚未寫入系統，也不是正式合約。請按「建立草稿」儲存。'],
+    unsaved_changes: ['unsaved', '含尚未儲存的修改', '此預覽包含尚未儲存的修改，與系統中已儲存的草稿不同；不是正式定稿。'],
+    saved_draft: ['draft', '草稿（已儲存）・尚未定稿', '此為已儲存的合約草稿，仍可修改，不是正式合約。'],
+    ready: ['ready', '已備妥・尚未簽署', '內容已鎖定，待簽署；如需修改須先退回草稿。'],
+    locked: ['locked', '已簽署／已鎖定・唯讀', '此合約內容已定案，不可修改；後續範圍或金額變動請建立需求變更。'],
+  };
+  function renderStateBanner(state) {
+    var t = DRAFT_STATE_TEXT[state];
+    if (!t) return '';
+    return '<div class="agv-banner agv-banner-' + t[0] + '" role="status"><strong>' + esc(t[1]) + '</strong><span>' + esc(t[2]) + '</span></div>';
+  }
+
+  // v2.1.1：合約金額區塊（原合約金額／已核准追加／調整後專案總額／收款系統對照）
+  function renderAmountBlock(fees, live) {
+    var ref = fees.amountReferences.filter(function (r) {
+      return fees.amountBasis === 'includes_changes' ? r.amount + fees.approvedChangeDelta === fees.contractAmount : r.amount === fees.contractAmount;
+    })[0];
+    var basisText = AMOUNT_BASIS_TEXT[fees.amountBasis] +
+      (fees.amountBasisSource === 'manual' ? '（人工指定）' : ref && fees.amountBasis !== 'unknown' ? '（自動判斷：' + (fees.amountBasis === 'includes_changes' ? ref.label + ' ＋ 已核准變更' : '等於' + ref.label) + '）' : '');
+    var pc = paymentComparison(fees, live);
+    var h = '<h4 class="agv-h4">合約金額</h4><table class="agv-table"><tbody>' +
+      '<tr><td>原合約金額（本合約記載）</td><td class="agv-num">' + (fees.contractAmount > 0 ? esc(money(fees.contractAmount)) : emptyMark('未填')) + '</td></tr>' +
+      '<tr><td>已核准追加／變更金額' + (fees.amountBasis === 'includes_changes' ? '<div class="agv-muted">已包含在原合約金額內，不重複加計</div>' : '') + '</td><td class="agv-num">' +
+        (fees.changeOrders.length ? esc(signedMoney(fees.approvedChangeDelta)) : emptyMark('無')) + '</td></tr>' +
+      '<tr class="agv-total"><td>調整後專案總額</td><td class="agv-num">' + (fees.adjustedTotal != null ? esc(money(fees.adjustedTotal)) : '<span class="agv-warn">' + MANUAL_CHECK_TEXT + '</span>') + '</td></tr>' +
+      '<tr><td>收款系統目前合約總額（即時）</td><td class="agv-num">' +
+        (pc.available ? esc(money(pc.paymentTotal)) + (pc.matches === true ? ' <span class="agv-ok">一致</span>' : pc.matches === false ? ' <span class="agv-warn">不一致（差額 ' + esc(signedMoney(pc.difference)) + '）</span>' : '')
+          : emptyMark('尚未建立付款計畫')) + '</td></tr>' +
+      '</tbody></table>' +
+      '<div class="agv-muted">金額基準：' + esc(basisText) + '</div>';
+    if (fees.changeOrders.length) {
+      h += '<div class="agv-muted" style="margin-top:4px">已核准的需求變更：' + fees.changeOrders.map(function (c) { return esc(c.crNumber) + ' ' + esc(c.title) + '（' + esc(signedMoney(c.amountDelta)) + '）'; }).join('、') + '</div>';
+    }
+    h += '<div class="agv-muted" style="margin-top:4px">分期付款依原合約金額建立；已核准追加金額依需求變更處理。合約資料不會修改分期款項、付款狀態或歷史合約金額。</div>';
+    return h;
+  }
+
   function renderPreview(agr, opts) {
     agr = agr || {}; opts = opts || {};
     var data = agr.contractData || null;
@@ -972,6 +1137,7 @@
     function sec(no, title, body) { return '<section class="agv-sec"><h3 class="agv-h"><span class="agv-no">' + no + '</span>' + esc(title) + '</h3>' + body + '</section>'; }
     function kv(k, v) { return '<div class="agv-kv"><span class="agv-k">' + esc(k) + '</span>' + (trim(v) ? esc(v) : emptyMark()) + '</div>'; }
 
+    html += renderStateBanner(opts.draftState);
     if (opts.staleSources && opts.staleSources.length) {
       html += '<div class="agv-alert">來源資料在這份合約草稿建立後已更新，以下內容仍是當時帶入的版本（不會自動改寫）：' +
         opts.staleSources.map(function (s) { return '<div>・' + esc(s.label) + (s.detail ? '：' + esc(s.detail) : '') + '</div>'; }).join('') + '</div>';
@@ -1029,12 +1195,11 @@
         var c = fees.categories[k];
         return '<tr><td>' + esc(c.label) + '</td><td class="agv-num">' + (fees.mode === 'itemized' && !c.lineCount && k !== 'unclassified' ? emptyMark('無') : feeAmount(c.amount, fees.mode, c.hasPending)) + '</td></tr>';
       }).join('') +
-      '<tr><td>額外修改或需求變更費（已核准）</td><td class="agv-num">' + (fees.changeOrders.length ? esc(signedMoney(fees.approvedChangeDelta)) : emptyMark('無')) + '</td></tr>' +
       '<tr><td>折扣</td><td class="agv-num">' + (fees.mode === 'none' ? emptyMark('—') : esc(fees.discount ? '-' + money(fees.discount) : money(0))) + '</td></tr>' +
       '<tr><td>稅額</td><td class="agv-num">' + (fees.mode === 'none' ? emptyMark('—') : esc(money(fees.tax))) + '</td></tr>' +
-      '<tr class="agv-total"><td>正式報價總額</td><td class="agv-num">' + (fees.baseTotal ? esc(money(fees.baseTotal)) : emptyMark('—')) + '</td></tr>' +
-      '<tr class="agv-total"><td>合約總額</td><td class="agv-num">' + esc(money(fees.contractAmount)) + (fees.amountTraceable ? '' : ' <span class="agv-warn">' + MANUAL_CHECK_TEXT + '</span>') + '</td></tr>' +
+      '<tr class="agv-total"><td>' + (fees.baseTotalSource === 'officialPrice' ? '議定金額（舊欄位）' : '正式報價總額') + '</td><td class="agv-num">' + (fees.baseTotal ? esc(money(fees.baseTotal)) : emptyMark('—')) + '</td></tr>' +
       '</tbody></table>';
+    feeBody += renderAmountBlock(fees, opts.live);
     if (fees.mode === 'itemized') {
       feeBody += '<h4 class="agv-h4">報價明細與分類</h4><table class="agv-table"><thead><tr><th>報價項目</th><th>分類</th><th class="agv-num">金額</th></tr></thead><tbody>' +
         fees.lines.map(function (l) {
@@ -1042,9 +1207,6 @@
             (l.categorySource === 'auto' ? '<span class="agv-muted">（依需求資料）</span>' : l.categorySource === 'manual' ? '<span class="agv-muted">（人工指定）</span>' : '') + '</td><td class="agv-num">' +
             (l.pricingPending ? '<span class="agv-warn">待定價</span>' : esc(money(l.amount))) + '</td></tr>';
         }).join('') + '</tbody></table>';
-    }
-    if (fees.changeOrders.length) {
-      feeBody += '<h4 class="agv-h4">已核准的需求變更</h4>' + fees.changeOrders.map(function (c) { return '<div class="agv-kv"><span class="agv-k">' + esc(c.crNumber) + '</span>' + esc(c.title) + '　' + esc(signedMoney(c.amountDelta)) + '</div>'; }).join('');
     }
     var plan = arr(agr.paymentPlanSnapshot);
     feeBody += '<h4 class="agv-h4">分期付款條件</h4>' +
@@ -1079,7 +1241,7 @@
     html += sec(6, '維護與額外修改費用', mb);
 
     // 7 尚缺少的必要資訊
-    var missing = missingInfo(agr, data, { staleSources: opts.staleSources, reviewDraftOpen: opts.reviewDraftOpen });
+    var missing = missingInfo(agr, data, { staleSources: opts.staleSources, reviewDraftOpen: opts.reviewDraftOpen, projectExists: opts.live && opts.live.projectExists, paymentTotal: opts.live && opts.live.paymentTotal });
     html += sec(7, '尚缺少的必要資訊',
       missing.length ? '<ul class="agv-missing">' + missing.map(function (x) {
         return '<li class="agv-lv-' + x.level + '"><span class="agv-tag">' + (x.level === 'required' ? '必要' : '需確認') + '</span>' + esc(x.text) + '</li>';
@@ -1131,14 +1293,23 @@
     allowedStatuses: allowedStatuses,
     sanitizeItems: sanitizeItems,
     isObligation: isObligation,
+    isLegacyRow: isLegacyRow,
+    confirmLegacyRows: confirmLegacyRows,
+    revokeLegacyConfirmation: revokeLegacyConfirmation,
+    excludeLegacyRows: excludeLegacyRows,
     computeDiff: computeDiff,
     buildFees: buildFees,
+    amountBasis: amountBasis,
+    paymentComparison: paymentComparison,
+    AMOUNT_BASIS_TEXT: AMOUNT_BASIS_TEXT,
     reservedChangePolicy: reservedChangePolicy,
     reservedTermsVersion: reservedTermsVersion,
     capture: capture,
     mergeEdits: mergeEdits,
     missingInfo: missingInfo,
     renderPreview: renderPreview,
+    renderAmountBlock: renderAmountBlock,
+    DRAFT_STATE_TEXT: DRAFT_STATE_TEXT,
     sourceSummary: sourceSummary,
     toFirestore: toFirestore,
     esc: esc,
