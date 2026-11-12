@@ -766,6 +766,36 @@ let agreements = [];
 let agreementBuilder = null;
 // Agreement v2.1：合約資料預覽（已儲存合約，唯讀）＝ agreement id；null＝未開啟
 let agreementPreviewId = null;
+// v2.1.2：合約列表「查看詳細」已展開的 agreement id（合約專用，與專案 Scope／CR 的 collapsedGroups 分開）
+const agreementDetailOpen = new Set();
+
+// v2.1.2：合約列表「查看詳細／收合」— 只重繪合約區塊
+function agrToggleDetail(id) {
+  if (agreementDetailOpen.has(id)) agreementDetailOpen.delete(id); else agreementDetailOpen.add(id);
+  renderAgreementUI();
+}
+
+// v2.1.2：把畫面定位到合約區塊（扣除固定在頂部的頁首高度）。
+// 頁面設定了 html { scroll-behavior: smooth }，平滑捲動進行中若區塊重繪造成高度變化會停在錯誤位置，
+// 所以這裡暫時改成立即捲動；並在下一個畫面影格再校正一次，處理重繪後版面尚未穩定的情況。
+function agrScrollToSection() {
+  const el = document.getElementById('agreementSection');
+  if (!el) return;
+  const targetTop = () => {
+    const header = document.querySelector('.header');
+    const offset = (header ? header.getBoundingClientRect().height : 56) + 12;
+    return Math.max(0, Math.round(el.getBoundingClientRect().top + window.scrollY - offset));
+  };
+  const jump = () => {
+    const root = document.documentElement;
+    const prev = root.style.scrollBehavior;
+    root.style.scrollBehavior = 'auto';
+    window.scrollTo(0, targetTop());
+    root.style.scrollBehavior = prev;
+  };
+  jump();
+  requestAnimationFrame(() => { if (Math.abs(window.scrollY - targetTop()) > 1) jump(); });
+}
 // Agreement v2.1：建立合約資料所需、但不在案件文件上的來源（需求變更、客戶接受報價快照）
 let agrV21Sources = null;   // { changeRequests, acceptance, loadedAt } ；null＝尚未載入
 // Agreement v2.1：合約需求明細目前展開編輯的列（純 UI 狀態）
@@ -4388,8 +4418,9 @@ function renderAgreementRow(a) {
   const statusLabel = AGREEMENT_STATUS_LABELS[a.status] || a.status;
   const statusColor = AGREEMENT_STATUS_COLOR[a.status] || 'var(--ink-30)';
   const statusBg    = AGREEMENT_STATUS_BG[a.status] || 'var(--ink-10)';
-  const detailKey = 'agr_' + a.id;
-  const detailOpen = collapsedGroups.has(detailKey); // 借用既有 collapsedGroups Set：預設收合，點擊展開細節
+  // v2.1.2：合約「查看詳細」改用合約專用的展開狀態與切換函式（agrToggleDetail），
+  // 不再借用 collapsedGroups／toggleGroupCollapse（該函式只重繪專案區塊，合約區塊不會更新）
+  const detailOpen = agreementDetailOpen.has(a.id);
   const locked = AGREEMENT_LOCKED_STATUSES.includes(a.status);
 
   const actions = [];
@@ -4407,7 +4438,7 @@ function renderAgreementRow(a) {
     actions.push(`<button class="btn-copy-link" onclick="agrMarkCompleted('${a.id}')">標記已完成</button>`);
   }
   actions.push(`<button class="btn-copy-link" onclick="agrV21OpenPreview('${a.id}')">合約資料預覽</button>`);
-  actions.push(`<button class="btn-copy-link" onclick="toggleGroupCollapse('${detailKey}')">${detailOpen ? '收合' : '查看詳細'}</button>`);
+  actions.push(`<button class="btn-copy-link" aria-expanded="${detailOpen ? 'true' : 'false'}" onclick="agrToggleDetail('${a.id}')">${detailOpen ? '收合' : '查看詳細'}</button>`);
 
   const detail = detailOpen ? `
       <div style="margin-top:8px;border-top:1px solid var(--ink-10);padding-top:8px;font-size:11.5px;color:var(--ink-60)">
@@ -4959,6 +4990,9 @@ async function agrV21OpenPreview(id) {
 function agrV21ClosePreview() {
   agreementPreviewId = null;
   renderAgreementUI();
+  // v2.1.2：預覽通常比列表高很多，關閉後頁面高度驟減，原本的捲動位置會落到下方其他區塊；
+  // 重繪完成後把畫面定位回合約區塊
+  agrScrollToSection();
 }
 function agrV21RenderSavedPreview() {
   const a = agreements.find(x => x.id === agreementPreviewId);
