@@ -775,26 +775,56 @@ function agrToggleDetail(id) {
   renderAgreementUI();
 }
 
-// v2.1.2：把畫面定位到合約區塊（扣除固定在頂部的頁首高度）。
-// 頁面設定了 html { scroll-behavior: smooth }，平滑捲動進行中若區塊重繪造成高度變化會停在錯誤位置，
-// 所以這裡暫時改成立即捲動；並在下一個畫面影格再校正一次，處理重繪後版面尚未穩定的情況。
+// v2.1.2／v2.1.3：所有合約相關的開啟、關閉、返回操作共用的定位函式——把畫面定位到合約區塊頂端
+// （扣除固定在頂部的頁首高度）。呼叫時機：renderAgreementUI() 重繪「之後」。
+// - 每次都重新以 id 取得元素並即時量測位置與頁首高度，不使用重繪前的舊元素或寫死的數字。
+// - 頁面設定了 html { scroll-behavior: smooth }：平滑捲動途中版面高度改變會停錯位置，所以定位時暫時改成立即捲動（無動畫）。
+// - renderAgreementUI() 之後，流程導覽面板（admin-workflow，位於合約區塊上方）會在 setTimeout 0 重繪，
+//   上方高度可能改變；因此在接下來幾個畫面影格及短暫延遲後再量測校正，版面穩定就停止。
+// - 校正期間使用者自行捲動（滾輪／觸控／鍵盤）或又觸發了新的定位，就停止舊的校正，不和使用者搶畫面。
+let agrScrollToken = 0;
 function agrScrollToSection() {
-  const el = document.getElementById('agreementSection');
-  if (!el) return;
+  const token = ++agrScrollToken;
   const targetTop = () => {
+    const el = document.getElementById('agreementSection');
+    if (!el) return null;
     const header = document.querySelector('.header');
     const offset = (header ? header.getBoundingClientRect().height : 56) + 12;
     return Math.max(0, Math.round(el.getBoundingClientRect().top + window.scrollY - offset));
   };
+  let lastY = null;   // 本函式最後設定的捲動位置
   const jump = () => {
+    const top = targetTop();
+    if (top == null) return;
+    lastY = top;
+    if (Math.abs(window.scrollY - top) <= 1) return;
     const root = document.documentElement;
     const prev = root.style.scrollBehavior;
     root.style.scrollBehavior = 'auto';
-    window.scrollTo(0, targetTop());
+    window.scrollTo(0, top);
     root.style.scrollBehavior = prev;
+    lastY = window.scrollY;   // 以實際到達的位置為準（頁面不夠長時瀏覽器會截在最底）
   };
-  jump();
-  requestAnimationFrame(() => { if (Math.abs(window.scrollY - targetTop()) > 1) jump(); });
+  // 使用者自己操作（滾輪、觸控、鍵盤、滑鼠按下／拖曳捲軸，或任何不是本函式造成的捲動）就停止校正
+  const stopEvents = ['wheel', 'touchstart', 'keydown', 'pointerdown'];
+  const cancel = () => { if (agrScrollToken === token) agrScrollToken++; detach(); };
+  const onScroll = () => { if (lastY != null && Math.abs(window.scrollY - lastY) > 2) cancel(); };
+  const detach = () => {
+    stopEvents.forEach(ev => window.removeEventListener(ev, cancel, true));
+    window.removeEventListener('scroll', onScroll, true);
+  };
+  stopEvents.forEach(ev => window.addEventListener(ev, cancel, { capture: true, passive: true }));
+  const fix = () => {
+    if (agrScrollToken !== token) { detach(); return; }
+    // 位置已不是本函式上次設定的位置＝使用者已自行捲動（捲動事件可能還沒送達），停止校正
+    if (lastY != null && Math.abs(window.scrollY - lastY) > 2) { cancel(); return; }
+    jump();
+  };
+  fix();
+  window.addEventListener('scroll', onScroll, { capture: true, passive: true });
+  requestAnimationFrame(() => { fix(); requestAnimationFrame(fix); });
+  setTimeout(fix, 60);
+  setTimeout(() => { fix(); detach(); }, 250);
 }
 // Agreement v2.1：建立合約資料所需、但不在案件文件上的來源（需求變更、客戶接受報價快照）
 let agrV21Sources = null;   // { changeRequests, acceptance, loadedAt } ；null＝尚未載入
@@ -4153,12 +4183,16 @@ async function openAgreementBuilder(agreementId) {
   // v2.1.1：記錄開啟時的內容，用來判斷是否有尚未儲存的修改（新草稿沒有基準＝尚未儲存）
   agreementBuilder.savedBaseline = agreementBuilder.id ? agrV21Serialize(agreementBuilder) : null;
   renderAgreementUI();
+  // v2.1.3：開啟建立／編輯畫面時，從表單開頭開始（從列表下方或預覽底部點「編輯」也不會停在表單中段）
+  agrScrollToSection();
 }
 function closeAgreementBuilder() {
-  // v2.1.1：有尚未儲存的修改時先確認，避免誤以為已存
+  // v2.1.1：有尚未儲存的修改時先確認，避免誤以為已存（選「取消」＝留在編輯畫面，不捲動、不丟資料）
   if (agrV21IsDirty() && !confirm('合約草稿有尚未儲存的修改，關閉後這些修改會遺失。\n確定要關閉嗎？')) return;
   agreementBuilder = null;
   renderAgreementUI();
+  // v2.1.3：編輯畫面比列表高，關閉後頁面變短，需定位回合約列表
+  agrScrollToSection();
 }
 
 // ── Draft Builder：欄位編輯（純前端，未按「建立/儲存草稿」前完全不寫 Firestore）──
@@ -4260,7 +4294,7 @@ async function saveAgreementDraft() {
       const existing = agreements.find(a => a.id === b.id);
       if (!existing || existing.status !== 'draft') {
         showToast('⚠ 此合約已不是草稿狀態，無法編輯');
-        agreementBuilder = null; renderAgreementUI(); return;
+        agreementBuilder = null; renderAgreementUI(); agrScrollToSection(); return;
       }
       const patch = { ...commonPayload, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
       await agrColl.doc(b.id).update(patch);
@@ -4295,9 +4329,10 @@ async function saveAgreementDraft() {
     }
     // v2.1：儲存後留在編輯畫面，可繼續預覽、返回編輯、再次儲存草稿（按「關閉」離開）
     b.savedBaseline = agrV21Serialize(b);
-    if (b.contractData) { b.savedOnce = true; renderAgreementUI(); return; }
+    if (b.contractData) { b.savedOnce = true; renderAgreementUI(); return; }   // 留在編輯畫面，不移動位置
     agreementBuilder = null;
     renderAgreementUI();
+    agrScrollToSection();   // v2.1.3：沒有合約資料的舊草稿儲存後會關閉編輯畫面，回到合約列表
   } catch (err) {
     console.error(err);
     showToast(`⚠ 儲存失敗：${err.message || err}`);
@@ -4663,8 +4698,7 @@ function agrV21SetView(view) {
   if (!agreementBuilder) return;
   agreementBuilder.view = view === 'preview' ? 'preview' : 'edit';
   renderAgreementUI();
-  const el = document.getElementById('agreementSection');
-  if (el) el.scrollIntoView({ block: 'start' });
+  agrScrollToSection();   // v2.1.3：改用共用定位函式
 }
 function agrV21ToggleRow(id) {
   if (agrV21OpenRows.has(id)) agrV21OpenRows.delete(id); else agrV21OpenRows.add(id);
@@ -4982,10 +5016,10 @@ function agrV21RenderBuilderPreview() {
 async function agrV21OpenPreview(id) {
   agreementPreviewId = id;
   renderAgreementUI();
+  agrScrollToSection();   // v2.1.3：先定位（載入來源資料期間就看得到預覽開頭）
   await agrV21LoadSources();
-  if (agreementPreviewId === id) renderAgreementUI();
-  const el = document.getElementById('agreementSection');
-  if (el) el.scrollIntoView({ block: 'start' });
+  // 載入完成後重繪；只有使用者仍停在這份預覽時才重繪並再定位一次
+  if (agreementPreviewId === id && !agreementBuilder) { renderAgreementUI(); agrScrollToSection(); }
 }
 function agrV21ClosePreview() {
   agreementPreviewId = null;
